@@ -47,6 +47,16 @@ import org.apache.spark.util.Utils
  * @note Once a SparkConf object is passed to Spark, it is cloned and can no longer be modified
  * by the user. Spark does not support modifying the configuration at runtime.
  */
+
+// Spark应用程序的配置。 用于将各种Spark参数设置为键值对.
+
+// 大多数情况下，您将使用new SparkConf()创建一个SparkConf对象，
+// 该对象将加载任何spark.*的值，Java系统属性也设置在您的应用程序中。 在这种情况下，直接在SparkConf对象上设置的参数优先于系统属性(默认设置)。
+
+// 对于单元测试，您也可以调用new SparkConf(false)来跳过加载外部设置，并获得相同的配置，无论系统属性是什么。
+
+// 此类中的所有setter方法都支持链式调用。 例如，您可以编写new SparkConf().setMaster("local").setAppName("My app")。
+// 注意：一旦SparkConf对象传递到Spark，它被克隆，不能再被用户修改。 Spark不支持在运行时修改配置。
 class SparkConf(loadDefaults: Boolean) extends Cloneable with Logging with Serializable {
 
   import SparkConf._
