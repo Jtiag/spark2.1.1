@@ -31,6 +31,7 @@ import org.apache.spark.util.RpcUtils
  * A RpcEnv implementation must have a [[RpcEnvFactory]] implementation with an empty constructor
  * so that it can be created via Reflection.
  */
+// 类库中最核心的就是RpcEnv，刚刚提到了这就是ActorSystem，服务端和客户端都可以使用它来做通信。
 private[spark] object RpcEnv {
 
   def create(
@@ -75,27 +76,33 @@ private[spark] abstract class RpcEnv(conf: SparkConf) {
    * Return RpcEndpointRef of the registered [[RpcEndpoint]]. Will be used to implement
    * [[RpcEndpoint.self]]. Return `null` if the corresponding [[RpcEndpointRef]] does not exist.
    */
+  // 返回endpointRef
   private[rpc] def endpointRef(endpoint: RpcEndpoint): RpcEndpointRef
 
   /**
    * Return the address that [[RpcEnv]] is listening to.
    */
+  // 返回RpcEnv监听的地址
   def address: RpcAddress
 
   /**
    * Register a [[RpcEndpoint]] with a name and return its [[RpcEndpointRef]]. [[RpcEnv]] does not
    * guarantee thread-safety.
    */
+  // 注册一个RpcEndpoint到RpcEnv并返回RpcEndpointRef
+  // setupEndpoint会在Dispatcher中注册Endpoint
   def setupEndpoint(name: String, endpoint: RpcEndpoint): RpcEndpointRef
 
   /**
    * Retrieve the [[RpcEndpointRef]] represented by `uri` asynchronously.
    */
+  // 通过uri异步地查询RpcEndpointRef
   def asyncSetupEndpointRefByURI(uri: String): Future[RpcEndpointRef]
 
   /**
    * Retrieve the [[RpcEndpointRef]] represented by `uri`. This is a blocking action.
    */
+  // 通过uri查询RpcEndpointRef，这种方式会产生阻塞
   def setupEndpointRefByURI(uri: String): RpcEndpointRef = {
     defaultLookupTimeout.awaitResult(asyncSetupEndpointRefByURI(uri))
   }
@@ -104,6 +111,8 @@ private[spark] abstract class RpcEnv(conf: SparkConf) {
    * Retrieve the [[RpcEndpointRef]] represented by `address` and `endpointName`.
    * This is a blocking action.
    */
+  // 通过address和endpointName查询RpcEndpointRef，这种方式会产生阻塞
+  // setupEndpointRef会先去调用RpcEndpointVerifier尝试验证本地或者远程是否存在某个endpoint，然后再创建RpcEndpointRef
   def setupEndpointRef(address: RpcAddress, endpointName: String): RpcEndpointRef = {
     setupEndpointRefByURI(RpcEndpointAddress(address, endpointName).toString)
   }
@@ -111,12 +120,14 @@ private[spark] abstract class RpcEnv(conf: SparkConf) {
   /**
    * Stop [[RpcEndpoint]] specified by `endpoint`.
    */
+  // 关掉endpoint
   def stop(endpoint: RpcEndpointRef): Unit
 
   /**
    * Shutdown this [[RpcEnv]] asynchronously. If need to make sure [[RpcEnv]] exits successfully,
    * call [[awaitTermination()]] straight after [[shutdown()]].
    */
+  // 关掉RpcEnv
   def shutdown(): Unit
 
   /**
@@ -124,18 +135,21 @@ private[spark] abstract class RpcEnv(conf: SparkConf) {
    *
    * TODO do we need a timeout parameter?
    */
+  // 等待直到RpcEnv关闭成功
   def awaitTermination(): Unit
 
   /**
    * [[RpcEndpointRef]] cannot be deserialized without [[RpcEnv]]. So when deserializing any object
    * that contains [[RpcEndpointRef]]s, the deserialization codes should be wrapped by this method.
    */
+  // 没有RpcEnv的话RpcEndpointRef是无法被反序列化的，这里是反序列化逻辑
   def deserialize[T](deserializationAction: () => T): T
 
   /**
    * Return the instance of the file server used to serve files. This may be `null` if the
    * RpcEnv is not operating in server mode.
    */
+  // 返回文件server实例
   def fileServer: RpcEnvFileServer
 
   /**
@@ -145,6 +159,7 @@ private[spark] abstract class RpcEnv(conf: SparkConf) {
    *
    * @param uri URI with location of the file.
    */
+  // 开一个针对给定URI的channel用来下载文件
   def openChannel(uri: String): ReadableByteChannel
 }
 

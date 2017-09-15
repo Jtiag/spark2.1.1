@@ -322,6 +322,7 @@ private[deploy] class Worker(
     // onDisconnected may be triggered multiple times, so don't attempt registration
     // if there are outstanding registration attempts scheduled.
     registrationRetryTimer match {
+      // 无其他的worker注册时
       case None =>
         registered = false
         registerMasterFutures = tryRegisterAllMasters()
@@ -509,7 +510,7 @@ private[deploy] class Worker(
             logInfo("Asked to kill unknown executor " + fullId)
         }
       }
-
+    // 接收从master中 launchDriver()发送过来的LaunchDriver消息来启动driver
     case LaunchDriver(driverId, driverDesc) =>
       logInfo(s"Asked to launch driver $driverId")
       val driver = new DriverRunner(

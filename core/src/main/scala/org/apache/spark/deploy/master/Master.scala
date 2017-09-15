@@ -55,6 +55,7 @@ private[deploy] class Master(
   private def createDateFormat = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US)
 
   private val WORKER_TIMEOUT_MS = conf.getLong("spark.worker.timeout", 60) * 1000
+  // 显示的完成的应用程序的最大数量。旧的应用程序将从UI中删除以维护这个限制适用于standalone模式
   private val RETAINED_APPLICATIONS = conf.getInt("spark.deploy.retainedApplications", 200)
   private val RETAINED_DRIVERS = conf.getInt("spark.deploy.retainedDrivers", 200)
   private val REAPER_ITERATIONS = conf.getInt("spark.dead.worker.persistence", 15)
@@ -409,7 +410,7 @@ private[deploy] class Master(
             + workerAddress))
         }
       }
-
+    // 当应用程序启动时就会去注册driver，Client会向Master发送一条注册driver的消息RequestSubmitDriver
     case RequestSubmitDriver(description) =>
       if (state != RecoveryState.ALIVE) {
         val msg = s"${Utils.BACKUP_STANDALONE_MASTER_PREFIX}: $state. " +
@@ -417,10 +418,15 @@ private[deploy] class Master(
         context.reply(SubmitDriverResponse(self, false, None, msg))
       } else {
         logInfo("Driver submitted " + description.command.mainClass)
+        // 创建DriverInfo信息
         val driver = createDriver(description)
+        // 持久化DriverInfo信息
         persistenceEngine.addDriver(driver)
+        // 把DriverInfo信息加入到等待调度队列里面
         waitingDrivers += driver
+        // 把DriverInfo信息缓存到内部缓存中
         drivers.add(driver)
+        // 通过schedule()调度
         schedule()
 
         // TODO: It might be good to instead have the submission client poll the master to determine
@@ -461,7 +467,7 @@ private[deploy] class Master(
             context.reply(KillDriverResponse(self, driverId, success = false, msg))
         }
       }
-
+    // 接收clientEndPoint发送来的消息RequestDriverStatus并在超时之前Response
     case RequestDriverStatus(driverId) =>
       if (state != RecoveryState.ALIVE) {
         val msg = s"${Utils.BACKUP_STANDALONE_MASTER_PREFIX}: $state. " +
@@ -469,6 +475,7 @@ private[deploy] class Master(
         context.reply(
           DriverStatusResponse(found = false, None, None, None, Some(new Exception(msg))))
       } else {
+        // 把completedDrivers中的DriverInfo信息加入到drivers中，然后找到匹配的driverId
         (drivers ++ completedDrivers).find(_.id == driverId) match {
           case Some(driver) =>
             context.reply(DriverStatusResponse(found = true, Some(driver.state),
@@ -619,6 +626,7 @@ private[deploy] class Master(
 
     // Keep launching executors until no more workers can accommodate any
     // more executors, or if we have reached this application's limits
+    // 过滤出能启动executor的索引
     var freeWorkers = (0 until numUsable).filter(canLaunchExecutor)
     while (freeWorkers.nonEmpty) {
       freeWorkers.foreach { pos =>
@@ -629,6 +637,7 @@ private[deploy] class Master(
 
           // If we are launching one executor per worker, then every iteration assigns 1 core
           // to the executor. Otherwise, every iteration assigns cores to a new executor.
+          // 开启了oneExecutorPerWorker算法
           if (oneExecutorPerWorker) {
             assignedExecutors(pos) = 1
           } else {
@@ -640,6 +649,7 @@ private[deploy] class Master(
           // scheduling executors on this worker until we use all of its resources.
           // Otherwise, just move on to the next worker.
           if (spreadOutApps) {
+            // 使用spreadOutApps时每次while循环只一次
             keepScheduling = false
           }
         }
@@ -658,6 +668,7 @@ private[deploy] class Master(
     for (app <- waitingApps if app.coresLeft > 0) {
       val coresPerExecutor: Option[Int] = app.desc.coresPerExecutor
       // Filter out workers that don't have enough resources to launch an executor
+      // sortBy默认按照升序排列
       val usableWorkers = workers.toArray.filter(_.state == WorkerState.ALIVE)
         .filter(worker => worker.memoryFree >= app.desc.memoryPerExecutorMB &&
           worker.coresFree >= coresPerExecutor.getOrElse(1))

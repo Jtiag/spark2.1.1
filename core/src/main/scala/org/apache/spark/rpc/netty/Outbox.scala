@@ -35,7 +35,7 @@ private[netty] sealed trait OutboxMessage {
   def onFailure(e: Throwable): Unit
 
 }
-
+// 对应RpcEndpoint的receive
 private[netty] case class OneWayOutboxMessage(content: ByteBuffer) extends OutboxMessage
   with Logging {
 
@@ -51,7 +51,7 @@ private[netty] case class OneWayOutboxMessage(content: ByteBuffer) extends Outbo
   }
 
 }
-
+// 对应调用RpcEndpoint的receiveAndReply方法
 private[netty] case class RpcOutboxMessage(
     content: ByteBuffer,
     _onFailure: (Throwable) => Unit,
@@ -83,12 +83,14 @@ private[netty] case class RpcOutboxMessage(
   }
 
 }
-
+// 每个远程Endpoint都对应一个Outbox
 private[netty] class Outbox(nettyEnv: NettyRpcEnv, val address: RpcAddress) {
 
   outbox => // Give this an alias so we can use it more clearly in closures.
 
   @GuardedBy("this")
+  // Outbox内部包含一个OutboxMessage的链表，OutboxMessage有两个子类，OneWayOutboxMessage和RpcOutboxMessage，
+  // 分别对应调用RpcEndpoint的receive和receiveAndReply方法。
   private val messages = new java.util.LinkedList[OutboxMessage]
 
   @GuardedBy("this")

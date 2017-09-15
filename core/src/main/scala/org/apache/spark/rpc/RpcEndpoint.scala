@@ -58,6 +58,7 @@ private[spark] trait RpcEndpoint {
    * Note: Because before `onStart`, [[RpcEndpoint]] has not yet been registered and there is not
    * valid [[RpcEndpointRef]] for it. So don't call `self` before `onStart` is called.
    */
+  // 直接用来发送消息的RpcEndpointRef，可以类比为Akka中的actorRef
   final def self: RpcEndpointRef = {
     require(rpcEnv != null, "rpcEnv has not been initialized")
     rpcEnv.endpointRef(this)
@@ -67,6 +68,7 @@ private[spark] trait RpcEndpoint {
    * Process messages from [[RpcEndpointRef.send]] or [[RpcCallContext.reply)]]. If receiving a
    * unmatched message, [[SparkException]] will be thrown and sent to `onError`.
    */
+  // 处理来自RpcEndpointRef.send或者RpcCallContext.reply的消息
   def receive: PartialFunction[Any, Unit] = {
     case _ => throw new SparkException(self + " does not implement 'receive'")
   }
@@ -75,6 +77,7 @@ private[spark] trait RpcEndpoint {
    * Process messages from [[RpcEndpointRef.ask]]. If receiving a unmatched message,
    * [[SparkException]] will be thrown and sent to `onError`.
    */
+  // 处理来自RpcEndpointRef.ask的消息，会有相应的回复
   def receiveAndReply(context: RpcCallContext): PartialFunction[Any, Unit] = {
     case _ => context.sendFailure(new SparkException(self + " won't reply anything"))
   }

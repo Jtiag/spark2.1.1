@@ -33,6 +33,7 @@ import org.apache.spark.util.ThreadUtils
 /**
  * A message dispatcher, responsible for routing RPC messages to the appropriate endpoint(s).
  */
+// NettyRpcEnv中包含Dispatcher，主要针对服务端，帮助路由到正确的RpcEndpoint，并且调用其业务逻辑。
 private[netty] class Dispatcher(nettyEnv: NettyRpcEnv) extends Logging {
 
   private class EndpointData(
@@ -199,6 +200,8 @@ private[netty] class Dispatcher(nettyEnv: NettyRpcEnv) extends Logging {
   }
 
   /** Message loop used for dispatching messages. */
+  // 读取LinkedBlockingQueue中的投递RpcMessage，根据客户端指定的Endpoint标识，找到Endpoint的Inbox，
+  // 然后投递进去，由于是阻塞队列，当没有消息的时候自然阻塞，一旦有消息，就开始工作。Dispatcher的ThreadPool负责消费这些Message。
   private class MessageLoop extends Runnable {
     override def run(): Unit = {
       try {

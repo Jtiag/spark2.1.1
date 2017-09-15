@@ -79,6 +79,9 @@ private[spark] abstract class RpcEndpointRef(conf: SparkConf)
    * @tparam T type of the reply message
    * @return the reply message from the corresponding [[RpcEndpoint]]
    */
+  // 发送消息到相应的RpcEndpoint并在默认超时内获取其结果，或者如果即使在默认的重试次数后仍然失败，则抛出SparkException。
+  // 默认的“超时”将被使用在“sendWithReply”的每一次调用。 因为使用该方法去重试，所以接收方的消息处理应该是幂等的。
+  // 注意：这是一个可能花费大量时间的阻塞操作，因此请勿在RpcEndpoint的消息循环中调用它
   def askWithRetry[T: ClassTag](message: Any): T = askWithRetry(message, defaultAskTimeout)
 
   /**

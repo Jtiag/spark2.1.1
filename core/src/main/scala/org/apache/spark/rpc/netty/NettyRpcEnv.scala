@@ -177,7 +177,7 @@ private[netty] class NettyRpcEnv(
       }
     }
   }
-
+  // 调用指定地址Outbox中的send方法，当远程连接未建立时，会先建立连接，然后去消化OutboxMessage。
   private[netty] def send(message: RequestMessage): Unit = {
     val remoteAddr = message.receiver.address
     if (remoteAddr == address) {
@@ -196,7 +196,7 @@ private[netty] class NettyRpcEnv(
   private[netty] def createClient(address: RpcAddress): TransportClient = {
     clientFactory.createClient(address.host, address.port)
   }
-
+  // 调用指定地址Outbox中的send方法，当远程连接未建立时，会先建立连接，然后去消化OutboxMessage。
   private[netty] def ask[T: ClassTag](message: RequestMessage, timeout: RpcTimeout): Future[T] = {
     val promise = Promise[Any]()
     val remoteAddr = message.receiver.address
@@ -429,7 +429,7 @@ private[netty] object NettyRpcEnv extends Logging {
   private[netty] val currentClient = new DynamicVariable[TransportClient](null)
 
 }
-
+// NettyRpcEnvFactory.create方法一旦调用就会立即在bind的address和port上启动server
 private[rpc] class NettyRpcEnvFactory extends RpcEnvFactory with Logging {
 
   def create(config: RpcEnvConfig): RpcEnv = {
@@ -547,6 +547,9 @@ private[netty] case class RpcFailure(e: Throwable)
  * RpcEnv, multiple connection / disconnection events will be created for that client (albeit
  * with different `RpcAddress` information).
  */
+// 谁会调用Dispatcher分发Message的方法呢？答案是RpcHandler的子类NettyRpcHandler，
+// 这就是Reactor中的线程做的事情。RpcHandler是底层org.apache.spark.spark-network-common提供的handler，
+// 当远程的数据包解析成功后，会调用这个handler做处理。
 private[netty] class NettyRpcHandler(
     dispatcher: Dispatcher,
     nettyEnv: NettyRpcEnv,

@@ -37,6 +37,7 @@ import org.apache.spark.util.{SparkExitCode, ThreadUtils, Utils}
  * We currently don't support retry if submission fails. In HA mode, client will submit request to
  * all masters and see which one could handle it.
  */
+// ClientEndPoint可以看作给Driver传递消息的代理
 private class ClientEndpoint(
     override val rpcEnv: RpcEnv,
     driverArgs: ClientArguments,
@@ -66,21 +67,22 @@ private class ClientEndpoint(
         // TODO: We could add an env variable here and intercept it in `sc.addJar` that would
         //       truncate filesystem paths similar to what YARN does. For now, we just require
         //       people call `addJar` assuming the jar is in the same directory.
+        // driver包装类，使得Worker和Driver的Rpc环境一样，做到共进退
         val mainClass = "org.apache.spark.deploy.worker.DriverWrapper"
-
         val classPathConf = "spark.driver.extraClassPath"
         val classPathEntries = sys.props.get(classPathConf).toSeq.flatMap { cp =>
           cp.split(java.io.File.pathSeparator)
         }
-
+        // Driver 库路径
         val libraryPathConf = "spark.driver.extraLibraryPath"
         val libraryPathEntries = sys.props.get(libraryPathConf).toSeq.flatMap { cp =>
           cp.split(java.io.File.pathSeparator)
         }
-
+        // driver Jvm参数
         val extraJavaOptsConf = "spark.driver.extraJavaOptions"
         val extraJavaOpts = sys.props.get(extraJavaOptsConf)
           .map(Utils.splitCommandString).getOrElse(Seq.empty)
+        // 将所有的在SparkConf中设置的属性赋值给java options的序列
         val sparkJavaOpts = Utils.sparkJavaOpts(conf)
         val javaOpts = sparkJavaOpts ++ extraJavaOpts
         val command = new Command(mainClass,
@@ -93,6 +95,7 @@ private class ClientEndpoint(
           driverArgs.cores,
           driverArgs.supervise,
           command)
+        // application一旦通过spark-submit提交就会向Master异步发送一个RequestSubmitDriver消息
         ayncSendToMasterAndForwardReply[SubmitDriverResponse](
           RequestSubmitDriver(driverDescription))
 
@@ -146,9 +149,9 @@ private class ClientEndpoint(
       System.exit(-1)
     }
   }
-
+  // 接收来自Master的通过RpcEndpointRef.send或者RpcCallContext.reply发送的消息
   override def receive: PartialFunction[Any, Unit] = {
-
+    // 收取到来自Driver注册Master成功 由Master发送的消息 SubmitDriverResponse
     case SubmitDriverResponse(master, success, driverId, message) =>
       logInfo(message)
       if (success) {
@@ -225,14 +228,14 @@ object Client {
       conf.set("spark.rpc.askTimeout", "10s")
     }
     Logger.getRootLogger.setLevel(driverArgs.logLevel)
-
+    // 创建一个driverClient的Rpc环境，并将得到Master和client的远程引用
     val rpcEnv =
       RpcEnv.create("driverClient", Utils.localHostName(), 0, conf, new SecurityManager(conf))
 
     val masterEndpoints = driverArgs.masters.map(RpcAddress.fromSparkURL).
       map(rpcEnv.setupEndpointRef(_, Master.ENDPOINT_NAME))
     rpcEnv.setupEndpoint("client", new ClientEndpoint(rpcEnv, driverArgs, masterEndpoints, conf))
-
+    // 启动rpc环境
     rpcEnv.awaitTermination()
   }
 }
