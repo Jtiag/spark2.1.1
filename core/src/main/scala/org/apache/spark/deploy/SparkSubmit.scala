@@ -52,6 +52,7 @@ import org.apache.spark.util.{ChildFirstURLClassLoader, MutableURLClassLoader, U
  * Whether to submit, kill, or request the status of an application.
  * The latter two operations are currently supported only for standalone and Mesos cluster modes.
  */
+// kill 和 request status操作只支持standalone 和 Mesos的集群模式
 private[deploy] object SparkSubmitAction extends Enumeration {
   type SparkSubmitAction = Value
   val SUBMIT, KILL, REQUEST_STATUS = Value
@@ -63,6 +64,8 @@ private[deploy] object SparkSubmitAction extends Enumeration {
  * This program handles setting up the classpath with relevant Spark dependencies and provides
  * a layer over the different cluster managers and deploy modes that Spark supports.
  */
+// 启动Spark应用程序的主要gateway
+// 该程序处理设置类路径与相关的Spark依赖关系，并为不同的集群管理器提供一个层，并部署Spark支持的模式
 object SparkSubmit {
 
   // Cluster managers
@@ -114,8 +117,9 @@ object SparkSubmit {
     exitFn(0)
   }
   // scalastyle:on println
-
+  // 一旦使用spark-submit脚本执行spark作业时会调用SparkSubmit伴生对象的main方法
   def main(args: Array[String]): Unit = {
+    // 解析和封装来自spark-submit脚本的参数。env参数用于测试
     val appArgs = new SparkSubmitArguments(args)
     if (appArgs.verbose) {
       // scalastyle:off println
@@ -155,10 +159,13 @@ object SparkSubmit {
    * Second, we use this launch environment to invoke the main method of the child
    * main class.
    */
+  // 使用提供的参数提交应用程序。这分为两个步骤。首先，我们通过设置适当的类路径、系统属性，
+  // 以及基于集群管理器和部署模式运行子类的应用程序参数来准备启动环境。其次，我们使用这个启动环境来调用子主类的main方法。
   @tailrec
   private def submit(args: SparkSubmitArguments): Unit = {
+    // 准备提交应用程序的环境。这返回一个4元组:(1)子进程的参数，(2)子类路径条目的列表，(3)系统属性的映射，以及(4)用于测试的子对象的主类
     val (childArgs, childClasspath, sysProps, childMainClass) = prepareSubmitEnvironment(args)
-
+    // 该方法中传进来一个自定义spark应用程序的main方法 即spark-submit脚本中指定的main类
     def doRunMain(): Unit = {
       if (args.proxyUser != null) {
         val proxyUser = UserGroupInformation.createProxyUser(args.proxyUser,

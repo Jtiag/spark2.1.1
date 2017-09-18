@@ -34,7 +34,9 @@ import org.apache.spark.util.random.SamplingUtils
  * Maps each key to a partition ID, from 0 to `numPartitions - 1`.
  */
 abstract class Partitioner extends Serializable {
+  // RDD有几个分区
   def numPartitions: Int
+  // 对于给定的值返回一个分区ID（0~numPartitions-1），也就是决定这个值是属于那个分区的
   def getPartition(key: Any): Int
 }
 
@@ -54,6 +56,14 @@ object Partitioner {
    *
    * We use two method parameters (rdd, others) to enforce callers passing at least 1 RDD.
    */
+  // 选择一个分区器，用于在多个RDD之间进行类cogroup的操作。 如果任何RDD已经具有分区器，请选择该分区器。
+
+  // 否则，我们使用默认的HashPartitioner。 对于分区数量，如果设置了spark.default.parallelism，
+  // 则我们将使用SparkContext defaultParallelism中的值，否则我们将使用最大数量的上游分区。
+
+  // 除非设置了spark.default.parallelism，否则分区数将与最大上游RDD中的分区数量相同，因为这应该不太可能导致内存不足的错误。
+
+  // 我们使用两个方法参数(rdd，others)来强制调用者传递至少1个RDD。
   def defaultPartitioner(rdd: RDD[_], others: RDD[_]*): Partitioner = {
     val rdds = (Seq(rdd) ++ others)
     val hasPartitioner = rdds.filter(_.partitioner.exists(_.numPartitions > 0))
@@ -117,14 +127,30 @@ class RangePartitioner[K : Ordering : ClassTag, V](
   private var ordering = implicitly[Ordering[K]]
 
   // An array of upper bounds for the first (partitions - 1) partitions
+  // 将一定范围内的数映射到某一个分区内，分区与分区之间是有序的，也就是说一个分区中的元素肯定都是比另一个分区内的元素小或者大；
+  // 但是分区内的元素是不能保证顺序的。
   private var rangeBounds: Array[K] = {
     if (partitions <= 1) {
       Array.empty
     } else {
       // This is the sample size we need to have roughly balanced output partitions, capped at 1M.
+      // 采样总数最大做了限制 为1000000
       val sampleSize = math.min(20.0 * partitions, 1e6)
       // Assume the input partitions are roughly balanced and over-sample a little bit.
+      // 按照我们的思路，正常情况下，父RDD每个分区需要采样的数据量应该是sampleSize/rdd.partitions.size
+      // 但这里放大了采样数，发现父RDD每个分区需要采样的数据量是正常数的3倍
+      // 这是因为父RDD各分区中的数据量可能会出现倾斜的情况，乘于3的目的就是保证数据量小的分区能够采样到足够的数据，
+      // 而对于数据量大的分区会进行第二次采样。
       val sampleSizePerPartition = math.ceil(3.0 * sampleSize / rdd.partitions.length).toInt
+      // 采样算法
+      // 这个地方就是RangePartitioner分区的核心了，其内部使用的就是水塘抽样，而这个抽样特别适合那种总数很大而且未知，
+      // 并无法将所有的数据全部存放到主内存中的情况。也就是我们不需要事先知道RDD中元素的个数（不需要调用rdd.count()了！）
+      // 在spark1.1之前的版本的算法中就使用到了两次扫描RDD(一次是RDD.count()一次是rdd.sample比较消耗性能)
+
+      // RangePartitioner.sketch的第一个参数是rdd.map(_._1)，也就是把父RDD的key传进来，因为分区只需要对Key进行操作即可。
+      // 该函数返回值是val (numItems, sketched) ，其中numItems相当于记录rdd元素的总数；
+      // 而sketched的类型是Array[(Int, Long, Array[K])]，记录的是分区的编号、该分区中总元素的个数以及从父RDD中每个分区采样的数据。
+      // sketch函数对父RDD中的每个分区进行采样，并记录下分区的ID和分区中数据总和。
       val (numItems, sketched) = RangePartitioner.sketch(rdd.map(_._1), sampleSizePerPartition)
       if (numItems == 0L) {
         Array.empty
@@ -149,10 +175,13 @@ class RangePartitioner[K : Ordering : ClassTag, V](
           // Re-sample imbalanced partitions with the desired sampling probability.
           val imbalanced = new PartitionPruningRDD(rdd.map(_._1), imbalancedPartitions.contains)
           val seed = byteswap32(-rdd.id - 1)
+          // 我们之前讨论过，父RDD各分区中的数据量可能不均匀，在极端情况下，有些分区内的数据量会占有整个RDD的绝大多数的数据，
+          // 如果按照水塘抽样进行采样，会导致该分区所采样的数据量不足，所以我们需要对该分区再一次进行采样，而这次采样使用的就是rdd的sample函数。
           val reSampled = imbalanced.sample(withReplacement = false, fraction, seed).collect()
           val weight = (1.0 / fraction).toFloat
           candidates ++= reSampled.map(x => (x, weight))
         }
+        // 从上面的采样算法可以看出，对于不同的分区weight的值是不一样的，这个值对应的就是每个分区的采样间隔
         RangePartitioner.determineBounds(candidates, partitions)
       }
     }
@@ -161,10 +190,11 @@ class RangePartitioner[K : Ordering : ClassTag, V](
   def numPartitions: Int = rangeBounds.length + 1
 
   private var binarySearch: ((Array[K], K) => Int) = CollectionsUtils.makeBinarySearch[K]
-
+  // 分区类的一个重要功能就是对给定的值计算其属于哪个分区
   def getPartition(key: Any): Int = {
     val k = key.asInstanceOf[K]
     var partition = 0
+    // 如果分区边界数组的大小小于或等于128的时候直接变量数组，否则采用二分查找法确定key属于某个分区
     if (rangeBounds.length <= 128) {
       // If we have less than 128 partitions naive search
       while (partition < rangeBounds.length && ordering.gt(k, rangeBounds(partition))) {
@@ -304,6 +334,7 @@ private[spark] object RangePartitioner {
       }
       i += 1
     }
+    // 返回的就是分区的划分边界
     bounds.toArray
   }
 }

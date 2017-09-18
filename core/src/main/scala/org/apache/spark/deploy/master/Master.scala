@@ -385,7 +385,7 @@ private[deploy] class Master(
       timeOutDeadWorkers()
 
   }
-
+  // 接收 ask发送来的消息
   override def receiveAndReply(context: RpcCallContext): PartialFunction[Any, Unit] = {
     case RegisterWorker(
         id, workerHost, workerPort, workerRef, cores, memory, workerWebUiUrl) =>
