@@ -716,18 +716,27 @@ private[deploy] class Master(
       return
     }
     // Drivers take strict precedence over executors
+    // Random.shuffle 的作用是随机打乱集合内的元素，拿到随机打乱的worker集合
     val shuffledAliveWorkers = Random.shuffle(workers.toSeq.filter(_.state == WorkerState.ALIVE))
     val numWorkersAlive = shuffledAliveWorkers.size
     var curPos = 0
+    // 首先，调度driver,为什么要调度？什么情况下会注册driver？并导致driver会被调度
+    // 其实只有用yarn-cluster模式提交的时候，才会注册driver；因为standalone client和yarn-client模式，都会在本地直接
+    // 启动driver，而不会来注册driver，就更不可能让master调度driver了
+
+    // 遍历waitingDrivers的ArrayBuffer  driver的调度机制
     for (driver <- waitingDrivers.toList) { // iterate over a copy of waitingDrivers
       // We assign workers to each waiting driver in a round-robin fashion. For each driver, we
       // start from the last worker that was assigned a driver, and continue onwards until we have
       // explored all alive workers.
       var launched = false
       var numWorkersVisited = 0
+      // 只要还有活着的Workers就继续遍历，而且当前这个driver还没有启动，即launched为false
       while (numWorkersVisited < numWorkersAlive && !launched) {
         val worker = shuffledAliveWorkers(curPos)
         numWorkersVisited += 1
+        // 如果当前的这个worker的空闲内存量大于等于driver需要的内存
+        // 并且worker的空闲cpu数量，大于等于driver需要的cpu数量
         if (worker.memoryFree >= driver.desc.mem && worker.coresFree >= driver.desc.cores) {
           launchDriver(worker, driver)
           waitingDrivers -= driver
@@ -997,11 +1006,17 @@ private[deploy] class Master(
     val date = new Date(now)
     new DriverInfo(now, newDriverId(date), desc, date)
   }
-
+  // 将指定driver与指定worker关联起来。也就是说，worker类有个drivers属性，是个hashmap，存放该worker所管理的所有driver，
+  // 该方法会将该driver放入worker自己的drivers（hashmap）里，而driver有个成员变量worker，记录driver运行时所属的worker。
+  // 这样worker与driver就相互关联起来。
   private def launchDriver(worker: WorkerInfo, driver: DriverInfo) {
     logInfo("Launching driver " + driver.id + " on worker " + worker.id)
+    // 将driver加入到worker的内存缓存结构中
+    // 将worker内使用的内存和cpu数量，都加上driver需要的内存和cpu数量
     worker.addDriver(driver)
+    // 同时把worker也加入到driver内部的缓存结构中
     driver.worker = Some(worker)
+    // 然后调用worker的RpcEndpointRef 给它发送LaunchDriver消息，让worker来启动Driver
     worker.endpoint.send(LaunchDriver(driver.id, driver.desc))
     driver.state = DriverState.RUNNING
   }

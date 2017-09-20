@@ -90,8 +90,11 @@ private[spark] object CryptoStreamUtils extends Logging {
   def createKey(conf: SparkConf): Array[Byte] = {
     val keyLen = conf.get(IO_ENCRYPTION_KEY_SIZE_BITS)
     val ioKeyGenAlgorithm = conf.get(IO_ENCRYPTION_KEYGEN_ALGORITHM)
+    // 此类提供（对称）密钥生成器的功能
     val keyGen = KeyGenerator.getInstance(ioKeyGenAlgorithm)
+    // 初始化此密钥生成器，使其具有确定的密钥大小
     keyGen.init(keyLen)
+    // 生成一个密钥。并返回基本编码格式的密钥，如果此密钥不支持编码，则返回 null
     keyGen.generateKey().getEncoded()
   }
 

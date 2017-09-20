@@ -109,13 +109,16 @@ private[netty] class NettyRpcEnv(
   }
 
   def startServer(bindAddress: String, port: Int): Unit = {
+    // 首先实例化bootstraps
     val bootstraps: java.util.List[TransportServerBootstrap] =
       if (securityManager.isAuthenticationEnabled()) {
         java.util.Arrays.asList(new SaslServerBootstrap(transportConf, securityManager))
       } else {
         java.util.Collections.emptyList()
       }
+    // 最后实际上创建了一个TransportServer
     server = transportContext.createServer(bindAddress, port, bootstraps)
+    // 向dispatcher注册
     dispatcher.registerRpcEndpoint(
       RpcEndpointVerifier.NAME, new RpcEndpointVerifier(this, dispatcher))
   }
@@ -438,15 +441,20 @@ private[rpc] class NettyRpcEnvFactory extends RpcEnvFactory with Logging {
     // KryoSerializer in future, we have to use ThreadLocal to store SerializerInstance
     val javaSerializerInstance =
       new JavaSerializer(sparkConf).newInstance().asInstanceOf[JavaSerializerInstance]
+    // 实例化了NettyRpcEnv，名字为config.host，即driver
     val nettyEnv =
       new NettyRpcEnv(sparkConf, javaSerializerInstance, config.advertiseAddress,
         config.securityManager)
+    // 传进来的clientMode为false，所以这里的判断为true
     if (!config.clientMode) {
+      // 定义了一个函数startNettyRpcEnv
       val startNettyRpcEnv: Int => (NettyRpcEnv, Int) = { actualPort =>
         nettyEnv.startServer(config.bindAddress, actualPort)
+        // 返回NettyRpcEnv及其端口号
         (nettyEnv, nettyEnv.address.port)
       }
       try {
+        // 开启“sparkDriver”服务，注意此处传进了上面定义的函数，这里的config.name是"sparkDriver"，最后返回了NettyRpcEnv
         Utils.startServiceOnPort(config.port, startNettyRpcEnv, sparkConf, config.name)._1
       } catch {
         case NonFatal(e) =>

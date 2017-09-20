@@ -225,6 +225,13 @@ private[spark] object Utils extends Logging {
   // scalastyle:off classforname
   /** Preferred alternative to Class.forName(className) */
   def classForName(className: String): Class[_] = {
+    // 使用给定的类加载器返回与给定字符串名称的类或接口相关联的Class对象。 给定类或接口的完全限定名称（以与getName相同的格式），
+    // 此方法将尝试查找，加载和链接类或接口。 指定的类加载器用于加载类或接口。 如果参数加载器为null，则通过bootstrap class loader引导类加载器加载该类。
+    // 只有在initialize参数为true并且尚未被初始化的情况下，才初始化该类。
+    // 如果name表示一个原始类型或void，则会尝试在名称为name的未命名的包中找到用户定义的类。
+    // 因此，该方法不能用于获取表示原始类型或void的任何Class对象。
+
+    // 如果名称表示数组类，则加载数组类的组件类型，但未初始化。
     Class.forName(className, true, getContextOrSparkClassLoader)
     // scalastyle:on classforname
   }
@@ -2206,14 +2213,17 @@ private[spark] object Utils extends Logging {
       startService: Int => (T, Int),
       conf: SparkConf,
       serviceName: String = ""): (T, Int) = {
-
+    // 我们传进来的startPort为0，所以会生成一个随机的端口号
     require(startPort == 0 || (1024 <= startPort && startPort < 65536),
       "startPort should be between 1024 and 65535 (inclusive), or 0 for a random free port.")
 
     val serviceString = if (serviceName.isEmpty) "" else s" '$serviceName'"
+    // 通过"spark.port.maxRetries"设置最大重试次数，如果没有设置，而设置中包括"spark.testing"，
+    // 最大重试次数就是100次，否则最大重试次数就是10次
     val maxRetries = portMaxRetries(conf)
     for (offset <- 0 to maxRetries) {
       // Do not increment port if startPort is 0, which is treated as a special port
+      // 设置端口号
       val tryPort = if (startPort == 0) {
         startPort
       } else {
@@ -2221,7 +2231,11 @@ private[spark] object Utils extends Logging {
         ((startPort + offset - 1024) % (65536 - 1024)) + 1024
       }
       try {
+        // 开启服务，并返回服务和端口号，注意这里的startService是上面传进来的那个函数startNettyRpcEnv
+        // 所以我们实际上执行的是startNettyRpcEnv(tryPort)，而根据startNettyRpcEnv函数的定义，实际
+        // 上是调用了nettyEnv.startServer(tryPort)方法
         val (service, port) = startService(tryPort)
+        // 创建成功后打印日志，serviceString就是"sparkDriver"
         logInfo(s"Successfully started service$serviceString on port $port.")
         return (service, port)
       } catch {

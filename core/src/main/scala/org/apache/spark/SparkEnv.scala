@@ -181,6 +181,10 @@ object SparkEnv extends Logging {
       numCores,
       ioEncryptionKey,
       listenerBus = listenerBus,
+      // 决定任务能否将输出提交到HDFS的权限。使用“first committer wins”的策略。在drivers and executors中都实例化了
+      // OutputCommitCoordinator。executors,配置了drivers的OutputCommitCoordinatorEndpoint的引用,
+      // 所以请求提交输出将转发给driver的OutputCommitCoordinator。
+      // 这个类在spark-4879中引入的;
       mockOutputCommitCoordinator = mockOutputCommitCoordinator
     )
   }
@@ -242,6 +246,7 @@ object SparkEnv extends Logging {
     }
 
     val systemName = if (isDriver) driverSystemName else executorSystemName
+    // 创建Driver的运行时环境，注意这里的clientMode等于false
     val rpcEnv = RpcEnv.create(systemName, bindAddress, advertiseAddress, port, conf,
       securityManager, clientMode = !isDriver)
 
