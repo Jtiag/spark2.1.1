@@ -46,6 +46,7 @@ object CommandUtils extends Logging {
       substituteArguments: String => String,
       classPaths: Seq[String] = Seq[String](),
       env: Map[String, String] = sys.env): ProcessBuilder = {
+    // 在给定的基础上构建一个命令，考虑到该命令运行的本地环境，替换任何占位符，并附加任何额外的类路径。
     val localCommand = buildLocalCommand(
       command, securityMgr, substituteArguments, classPaths, env)
     val commandSeq = buildCommandSeq(localCommand, memory, sparkHome)

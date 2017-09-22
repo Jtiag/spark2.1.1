@@ -38,6 +38,7 @@ import org.apache.spark.util.{Clock, ShutdownHookManager, SystemClock, Utils}
  * Manages the execution of one driver, including automatically restarting the driver on failure.
  * This is currently only used in standalone cluster deploy mode.
  */
+// 管理一个驱动程序的执行，包括自动重新启动驱动程序失败。目前只在standalone集群部署模式中使用
 private[deploy] class DriverRunner(
     conf: SparkConf,
     val driverId: String,
@@ -83,12 +84,14 @@ private[deploy] class DriverRunner(
       override def run() {
         var shutdownHook: AnyRef = null
         try {
+          // 注册关闭钩子函数， JVM将在关闭之前执行关闭钩子中的kill()，以防止暴力杀掉Aplication后数据的丢失
           shutdownHook = ShutdownHookManager.addShutdownHook { () =>
             logInfo(s"Worker shutting down, killing driver $driverId")
             kill()
           }
 
           // prepare driver jars and run driver
+          // 创建工作目录，下载jar，运行driver
           val exitCode = prepareAndRunDriver()
 
           // set final state depending on if forcibly killed and process exit code
@@ -111,6 +114,7 @@ private[deploy] class DriverRunner(
         }
 
         // notify worker of final driver state, possible exception
+        // 不管Driver启动成功与否都会向worker发送一个DriverStateChanged的消息来处理Driver状态的改变
         worker.send(DriverStateChanged(driverId, finalState.get, finalException))
       }
     }.start()
@@ -147,11 +151,15 @@ private[deploy] class DriverRunner(
    * Download the user jar into the supplied directory and return its local path.
    * Will throw an exception if there are errors downloading the jar.
    */
+  // 下载用户jar包到指定的目录并返回它的本地绝对路径
   private def downloadUserJar(driverDir: File): String = {
+    // DriverDesc.jarUrl通过Netty从Driver机器远程拷贝过来
+    // 获取jar包名
     val jarFileName = new URI(driverDesc.jarUrl).getPath.split("/").last
     val localJarFile = new File(driverDir, jarFileName)
     if (!localJarFile.exists()) { // May already exist if running multiple workers on one node
       logInfo(s"Copying user jar ${driverDesc.jarUrl} to $localJarFile")
+      // 从driverDesc.jarUrl中拷贝 jar到本地的localJarFile
       Utils.fetchFile(
         driverDesc.jarUrl,
         driverDir,
@@ -160,16 +168,20 @@ private[deploy] class DriverRunner(
         SparkHadoopUtil.get.newConfiguration(conf),
         System.currentTimeMillis(),
         useCache = false)
+      // 若拷贝成功jar包到DriverDir中那么localJarFile.exists = true
       if (!localJarFile.exists()) { // Verify copy succeeded
         throw new IOException(
           s"Can not find expected jar $jarFileName which should have been loaded in $driverDir")
       }
     }
+    // 返回此抽象路径名的绝对路径名字符串。
     localJarFile.getAbsolutePath
   }
 
   private[worker] def prepareAndRunDriver(): Int = {
+    // 创建driver工作目录
     val driverDir = createWorkingDirectory()
+    // 下载所需的jar包
     val localJarFilename = downloadUserJar(driverDir)
 
     def substituteVariables(argument: String): String = argument match {
@@ -179,25 +191,29 @@ private[deploy] class DriverRunner(
     }
 
     // TODO: If we add ability to submit multiple jars they should also be added here
+    // 构建processBuilder 根据DriverDesc.command模板构建本地执行的command命令
     val builder = CommandUtils.buildProcessBuilder(driverDesc.command, securityManager,
       driverDesc.mem, sparkHome.getAbsolutePath, substituteVariables)
-
+    // 将builder传给runDriver方法,启动driver
     runDriver(builder, driverDir, driverDesc.supervise)
   }
 
   private def runDriver(builder: ProcessBuilder, baseDir: File, supervise: Boolean): Int = {
     builder.directory(baseDir)
+    // 将Process的输出流输出到文件stdout/stderror
     def initialize(process: Process): Unit = {
       // Redirect stdout and stderr to files
       val stdout = new File(baseDir, "stdout")
       CommandUtils.redirectStream(process.getInputStream, stdout)
 
       val stderr = new File(baseDir, "stderr")
+      // 格式化cmd以这种"hello" "spark" "helle" "scala"格式
       val formattedCommand = builder.command.asScala.mkString("\"", "\" \"", "\"")
       val header = "Launch Command: %s\n%s\n\n".format(formattedCommand, "=" * 40)
       Files.append(header, stderr, StandardCharsets.UTF_8)
       CommandUtils.redirectStream(process.getErrorStream, stderr)
     }
+    // 如果Process启动失败，进行1-5的秒的反复启动工作，直到启动成功，在释放Worker节点的DriverRunner的资源
     runCommandWithRetry(ProcessBuilderLike(builder), initialize, supervise)
   }
 

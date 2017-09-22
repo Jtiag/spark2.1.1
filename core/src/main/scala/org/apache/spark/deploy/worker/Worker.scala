@@ -513,6 +513,7 @@ private[deploy] class Worker(
     // 接收从master中 launchDriver()发送过来的LaunchDriver消息来启动driver
     case LaunchDriver(driverId, driverDesc) =>
       logInfo(s"Asked to launch driver $driverId")
+      // 构造一个新的driver
       val driver = new DriverRunner(
         conf,
         driverId,
@@ -522,9 +523,11 @@ private[deploy] class Worker(
         self,
         workerUri,
         securityMgr)
+      // 将新生成的driver加入到drivers里面，drivers是个hashmap
       drivers(driverId) = driver
+      // 启动内部的线程来管理Driver
       driver.start()
-
+      // 记录该driver所消耗的该worker上的内存和core
       coresUsed += driverDesc.cores
       memoryUsed += driverDesc.mem
 

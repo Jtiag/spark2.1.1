@@ -112,7 +112,9 @@ private[spark] class StandaloneSchedulerBackend(
       }
     val appDesc = new ApplicationDescription(sc.appName, maxCores, sc.executorMemory, command,
       appUIAddress, sc.eventLogDir, sc.eventLogCodec, coresPerExecutor, initialExecutorLimit)
+    // 创建AppClient 其组合了 ClientEndpoint(ThreadSafeRpcEndpoint的子类)
     client = new StandaloneAppClient(sc.env.rpcEnv, masters, appDesc, this, conf)
+    // 启动AppClient服务 内部会创建ClientEndpoint 然后向master发送RegisterApplication消息
     client.start()
     launcherBackend.setState(SparkAppHandle.State.SUBMITTED)
     waitForRegistration()

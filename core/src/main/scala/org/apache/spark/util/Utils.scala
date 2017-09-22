@@ -441,6 +441,11 @@ private[spark] object Utils extends Logging {
    * Throws SparkException if the target file already exists and has different contents than
    * the requested file.
    */
+    // 下载一个文件或目录到目标目录。支持以多种方式获取文件，包括基于URL参数的标准文件系统上的HTTP、hadoop兼容文件系统和文件。
+    // 获取目录仅由hadoop兼容的文件系统支持。
+
+    // 如果useCache是true，那么首先尝试将该文件获取到 在运行相同应用程序的executors中共享的 本地缓存中。
+    // useCache主要用于executors，而不是本地模式。如果目标文件已经存在并具有与请求文件不同的内容，则抛出SparkException。
   def fetchFile(
       url: String,
       targetDir: File,
@@ -449,9 +454,11 @@ private[spark] object Utils extends Logging {
       hadoopConf: Configuration,
       timestamp: Long,
       useCache: Boolean) {
+      // 从uri的原始路径获取文件名并解码。如果uri的原始路径以“/”结束，则返回最后"/"后的名称，其实就是jar包名或者文件名
     val fileName = decodeFileNameInURI(new URI(url))
     val targetFile = new File(targetDir, fileName)
     val fetchCacheEnabled = conf.getBoolean("spark.files.useFetchCache", defaultValue = true)
+      // 使用缓存
     if (useCache && fetchCacheEnabled) {
       val cachedFileName = s"${url.hashCode}${timestamp}_cache"
       val lockFileName = s"${url.hashCode}${timestamp}_lock"
@@ -461,6 +468,7 @@ private[spark] object Utils extends Logging {
       // Only one executor entry.
       // The FileLock is only used to control synchronization for executors download file,
       // it's always safe regardless of lock type (mandatory or advisory).
+      // 获取对此通道的文件的独占锁定
       val lock = lockFileChannel.lock()
       val cachedFile = new File(localDir, cachedFileName)
       try {
@@ -636,6 +644,10 @@ private[spark] object Utils extends Logging {
    * Throws SparkException if the target file already exists and has different contents than
    * the requested file.
    */
+  // 下载一个文件或目录到目标目录。支持以多种方式获取文件，包括基于URL参数的标准文件系统上的HTTP、hadoop兼容文件系统和文件。
+  // 获取目录仅由hadoop兼容的文件系统支持。
+
+  // 如果目标文件已经存在并具有与请求文件不同的内容，则抛出SparkException
   private def doFetchFile(
       url: String,
       targetDir: File,
@@ -1180,17 +1192,23 @@ private[spark] object Utils extends Logging {
       workingDir: File = new File("."),
       extraEnvironment: Map[String, String] = Map.empty,
       redirectStderr: Boolean = true): Process = {
+    // 以targetDir创建一个ProcessBuilder
     val builder = new ProcessBuilder(command: _*).directory(workingDir)
+    // 返回此进程生成器环境的字符串映射视图
     val environment = builder.environment()
+    // 把extraEnvironment参数添加到environment
     for ((key, value) <- extraEnvironment) {
       environment.put(key, value)
     }
+    // 使用此进程生成器的属性启动一个新进程
     val process = builder.start()
     if (redirectStderr) {
       val threadName = "redirect stderr for command " + command(0)
       def log(s: String): Unit = logInfo(s)
+      // 返回并启动一个守护线程，该线程按行处理输入流的内容
       processStreamByLine(threadName, process.getErrorStream, log)
     }
+    // 返回process来管理进程
     process
   }
 
