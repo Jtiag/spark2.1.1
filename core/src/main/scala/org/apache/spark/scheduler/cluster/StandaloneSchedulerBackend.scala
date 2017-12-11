@@ -98,6 +98,7 @@ private[spark] class StandaloneSchedulerBackend(
     // Start executors with a few necessary configs for registering with the scheduler
     val sparkJavaOpts = Utils.sparkJavaOpts(conf, SparkConf.isExecutorStartupConf)
     val javaOpts = sparkJavaOpts ++ extraJavaOpts
+    // 用command拼接参数，最终会启动org.apache.spark.executor.CoarseGrainedExecutorBackend子进程
     val command = Command("org.apache.spark.executor.CoarseGrainedExecutorBackend",
       args, sc.executorEnvs, classPathEntries ++ testingClassPath, libraryPathEntries, javaOpts)
     val appUIAddress = sc.ui.map(_.appUIAddress).getOrElse("")
@@ -110,6 +111,7 @@ private[spark] class StandaloneSchedulerBackend(
       } else {
         None
       }
+    // ApplicationDescription中包含了启动executor后台进程的main class CoarseGrainedExecutorBackend
     val appDesc = new ApplicationDescription(sc.appName, maxCores, sc.executorMemory, command,
       appUIAddress, sc.eventLogDir, sc.eventLogCodec, coresPerExecutor, initialExecutorLimit)
     // 创建AppClient 其组合了 ClientEndpoint(ThreadSafeRpcEndpoint的子类)

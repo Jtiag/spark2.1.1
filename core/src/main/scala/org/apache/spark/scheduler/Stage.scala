@@ -54,6 +54,18 @@ import org.apache.spark.util.CallSite
  * @param callSite Location in the user program associated with this stage: either where the target
  *   RDD was created, for a shuffle map stage, or where the action for a result stage was called.
  */
+// 一个阶段是一组独立的任务，他们都在计算同一个函数，需要运行作为Spark作业的一部分，其中所有的任务都具有相同的随机依赖关系。
+// 调度程序运行的每一个DAG都被分成不同的阶段，在发生shuffle的地方，然后DAGScheduler以拓扑顺序运行这些阶段。
+
+// 每个阶段可以是一个shuffle map stage，在这种情况下，其任务的结果将作为另一个stage或result stage的输入，在这种情况下，
+// 它的任务直接计算触发job的action操作（例如count（），save（） ，等等）。对于shuffle map stages，还会跟踪每个输出partition所在的节点。
+
+// 每个stage还有一个jobId，用于识别第一次提交stage的job。当使用FIFO调度时，这允许首先计算较早jobs的stage，或者在故障时恢复的更快。
+
+// callSite提供与stage相关的用户代码中的位置。对于shuffle map stage，callSite给出创建RDD正在被shuffle的用户代码。
+// 对于result stage，callSite给出执行相关action操作的用户代码（例如count（））。
+
+// A single stage可以由多次尝试组成。在这种情况下，将为每次尝试更新latestInfo字段。
 private[scheduler] abstract class Stage(
     val id: Int,
     val rdd: RDD[_],

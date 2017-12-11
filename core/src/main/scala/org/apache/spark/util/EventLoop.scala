@@ -32,11 +32,11 @@ import org.apache.spark.internal.Logging
  * handle events in time to avoid the potential OOM.
  */
 private[spark] abstract class EventLoop[E](name: String) extends Logging {
-
+  // 使用到了java中的 双向并发阻塞队列 LinkedBlockingDeque
   private val eventQueue: BlockingQueue[E] = new LinkedBlockingDeque[E]()
 
   private val stopped = new AtomicBoolean(false)
-
+  // 当其子类被创建时会创建以dag-scheduler-event-loop为名的守护线程来从eventQueue队列中拿到任务
   private val eventThread = new Thread(name) {
     setDaemon(true)
 
@@ -45,6 +45,7 @@ private[spark] abstract class EventLoop[E](name: String) extends Logging {
         while (!stopped.get) {
           val event = eventQueue.take()
           try {
+            // 处理在submiJob() 中调用eventProcessLoop.post(...) post到队列中的消息
             onReceive(event)
           } catch {
             case NonFatal(e) =>

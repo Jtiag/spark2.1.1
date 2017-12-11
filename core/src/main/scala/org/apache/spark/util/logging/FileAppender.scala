@@ -26,6 +26,7 @@ import org.apache.spark.util.{IntParam, Utils}
 /**
  * Continuously appends the data from an input stream into the given file.
  */
+// 不断地将输入流中的数据追加到给定的文件中
 private[spark] class FileAppender(inputStream: InputStream, file: File, bufferSize: Int = 8192)
   extends Logging {
   @volatile private var outputStream: FileOutputStream = null

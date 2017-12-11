@@ -168,15 +168,20 @@ private[spark] class TaskSchedulerImpl(
   override def postStartHook() {
     waitBackendReady()
   }
-
+  // 在DAGScheduler的submitMissingTasks()中最后会调用的taskScheduler.submitTasks(taskSet) 来提交一整个taskSet。
+  // 这个taskScheduler(为trait) 其中的一个子类是TaskSchedulerImpl
   override def submitTasks(taskSet: TaskSet) {
     val tasks = taskSet.tasks
     logInfo("Adding task set " + taskSet.id + " with " + tasks.length + " tasks")
     this.synchronized {
+      // 为每个task创建一个TaskSetManager，TaskSetManager会负责该task的任务管理和监控，
+      // 在TaskSchedulerImpl中，TaskSetManager对taskset的每一个Task任务进行调度。
+      // TaskSetManager这个类会管理taskSet任务的运行，如果任务失败会重试
       val manager = createTaskSetManager(taskSet, maxTaskFailures)
       val stage = taskSet.stageId
       val stageTaskSets =
         taskSetsByStageIdAndAttempt.getOrElseUpdate(stage, new HashMap[Int, TaskSetManager])
+      // 加入内存中
       stageTaskSets(taskSet.stageAttemptId) = manager
       val conflictingTaskSet = stageTaskSets.exists { case (_, ts) =>
         ts.taskSet != taskSet && !ts.isZombie
@@ -185,6 +190,7 @@ private[spark] class TaskSchedulerImpl(
         throw new IllegalStateException(s"more than one active taskSet for stage $stage:" +
           s" ${stageTaskSets.toSeq.map{_._2.taskSet.id}.mkString(",")}")
       }
+      // schedulableBuilder 可以是FIFOSchedulableBuilder 或者 FairSchedulableBuilder 调度器。
       schedulableBuilder.addTaskSetManager(manager, manager.taskSet.properties)
 
       if (!isLocal && !hasReceivedTask) {
@@ -202,6 +208,7 @@ private[spark] class TaskSchedulerImpl(
       }
       hasReceivedTask = true
     }
+    // 该方法会向 Driver发送一条ReviveOffers消息
     backend.reviveOffers()
   }
 
@@ -249,6 +256,15 @@ private[spark] class TaskSchedulerImpl(
       s" ${manager.parent.name}")
   }
 
+  /**
+    * 将task分配到相应的executor上去
+    * @param taskSet
+    * @param maxLocality
+    * @param shuffledOffers
+    * @param availableCpus
+    * @param tasks
+    * @return
+    */
   private def resourceOfferSingleTaskSet(
       taskSet: TaskSetManager,
       maxLocality: TaskLocality,
@@ -288,12 +304,15 @@ private[spark] class TaskSchedulerImpl(
    * sets for tasks in order of priority. We fill each node with tasks in a round-robin manner so
    * that tasks are balanced across the cluster.
    */
+  // 由集群管理器调用资源给slave集群。 我们以优先级的顺序响应我们激活任务集的任务。
+  // 我们以轮循的方式填充每个节点的任务，使得任务在集群中负载均衡。
   def resourceOffers(offers: IndexedSeq[WorkerOffer]): Seq[Seq[TaskDescription]] = synchronized {
     // Mark each slave as alive and remember its hostname
     // Also track if new executor is added
     var newExecAvail = false
     for (o <- offers) {
       if (!hostToExecutors.contains(o.host)) {
+        // 记录executor以及对应的host
         hostToExecutors(o.host) = new HashSet[String]()
       }
       if (!executorIdToRunningTaskIds.contains(o.executorId)) {
@@ -309,6 +328,7 @@ private[spark] class TaskSchedulerImpl(
     }
 
     // Randomly shuffle offers to avoid always placing tasks on the same set of workers.
+    // 将传过来的WorkerOffer打乱，以便均衡
     val shuffledOffers = Random.shuffle(offers)
     // Build a list of tasks to assign to each worker.
     val tasks = shuffledOffers.map(o => new ArrayBuffer[TaskDescription](o.cores))
@@ -325,14 +345,23 @@ private[spark] class TaskSchedulerImpl(
     // Take each TaskSet in our scheduling order, and then offer it each node in increasing order
     // of locality levels so that it gets a chance to launch local tasks on all of them.
     // NOTE: the preferredLocality order: PROCESS_LOCAL, NODE_LOCAL, NO_PREF, RACK_LOCAL, ANY
+    // task分配的核心，遍历所有的taskset，以及本地化级别myLocalityLevels，本地化级别分为几种：
+    //    1.PROCESS_LOCAL task和partition在同一个executor。
+    //    2.NODE_LOCAL task和partition在同一个worker上。
+    //    3.NO_PREF 没有本地化级别。
+    //    4.RACK_LOCAL 机架级别本地化。
+    //    5.ANY
     for (taskSet <- sortedTaskSets) {
       var launchedAnyTask = false
       var launchedTaskAtCurrentMaxLocality = false
       for (currentMaxLocality <- taskSet.myLocalityLevels) {
         do {
+          // 判断是否能够在某个级别启动
           launchedTaskAtCurrentMaxLocality = resourceOfferSingleTaskSet(
             taskSet, currentMaxLocality, shuffledOffers, availableCpus, tasks)
           launchedAnyTask |= launchedTaskAtCurrentMaxLocality
+          // launchedTaskAtCurrentMaxLocality如果false也就是该级别下不能启动task,
+          // 那么跳出while循环，进入下一个优先级级别的本地化级别，直到最后，将task都分配给executor
         } while (launchedTaskAtCurrentMaxLocality)
       }
       if (!launchedAnyTask) {

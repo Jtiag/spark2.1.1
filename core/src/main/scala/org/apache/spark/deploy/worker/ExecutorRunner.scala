@@ -139,15 +139,17 @@ private[deploy] class ExecutorRunner(
   /**
    * Download and run the executor described in our ApplicationDescription
    */
+  // 下载并运行在我们的ApplicationDescription中描述的executor
   private def fetchAndRunExecutor() {
     try {
       // Launch the process
       val builder = CommandUtils.buildProcessBuilder(appDesc.command, new SecurityManager(conf),
         memory, sparkHome.getAbsolutePath, substituteVariables)
+      // 返回此进程生成器的操作系统程序和参数
       val command = builder.command()
       val formattedCommand = command.asScala.mkString("\"", "\" \"", "\"")
       logInfo(s"Launch command: $formattedCommand")
-
+      // 设置此进程生成器的工作目录
       builder.directory(executorDir)
       builder.environment.put("SPARK_EXECUTOR_DIRS", appLocalDirs.mkString(File.pathSeparator))
       // In case we are running this from within the Spark Shell, avoid creating a "scala"
@@ -163,7 +165,7 @@ private[deploy] class ExecutorRunner(
         }
       builder.environment.put("SPARK_LOG_URL_STDERR", s"${baseUrl}stderr")
       builder.environment.put("SPARK_LOG_URL_STDOUT", s"${baseUrl}stdout")
-
+      // builder.start()会以SystemRuntime的方式启动一个子进程，这个是进程的类名是CoarseGrainedExecutorBackend
       process = builder.start()
       val header = "Spark Executor Command: %s\n%s\n\n".format(
         formattedCommand, "=" * 40)
@@ -181,6 +183,7 @@ private[deploy] class ExecutorRunner(
       val exitCode = process.waitFor()
       state = ExecutorState.EXITED
       val message = "Command exited with code " + exitCode
+      // executor向worker发送一条ExecutorStateChanged消息
       worker.send(ExecutorStateChanged(appId, execId, state, Some(message), Some(exitCode)))
     } catch {
       case interrupted: InterruptedException =>

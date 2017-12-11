@@ -1031,6 +1031,7 @@ private[spark] object Utils extends Logging {
           if (savedIOException != null) {
             throw savedIOException
           }
+          // 在jvm退出前执行删除目录的钩子函数
           ShutdownHookManager.removeShutdownDeleteDir(file)
         }
       } finally {
