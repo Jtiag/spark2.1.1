@@ -76,23 +76,41 @@ private[spark] class ShuffleMapTask(
 
   override def runTask(context: TaskContext): MapStatus = {
     // Deserialize the RDD using the broadcast variable.
+    /**
+      * 返回 Java 虚拟机的线程系统的管理 Bean
+      */
     val threadMXBean = ManagementFactory.getThreadMXBean
     val deserializeStartTime = System.currentTimeMillis()
     val deserializeStartCpuTime = if (threadMXBean.isCurrentThreadCpuTimeSupported) {
       threadMXBean.getCurrentThreadCpuTime
     } else 0L
+    /**
+      * 创建序列化器
+      */
     val ser = SparkEnv.get.closureSerializer.newInstance()
+    /**
+      * 反序列化RDD和依赖关系
+      */
     val (rdd, dep) = ser.deserialize[(RDD[_], ShuffleDependency[_, _, _])](
       ByteBuffer.wrap(taskBinary.value), Thread.currentThread.getContextClassLoader)
+    /**
+      * RDD反序列化的时间
+      */
     _executorDeserializeTime = System.currentTimeMillis() - deserializeStartTime
     _executorDeserializeCpuTime = if (threadMXBean.isCurrentThreadCpuTimeSupported) {
       threadMXBean.getCurrentThreadCpuTime - deserializeStartCpuTime
     } else 0L
-
+    /**
+      * 创建shuffle的writer对象，用来将计算结果写入shuffle管理器
+      */
     var writer: ShuffleWriter[Any, Any] = null
     try {
       val manager = SparkEnv.get.shuffleManager
       writer = manager.getWriter[Any, Any](dep.shuffleHandle, partitionId, context)
+      /**
+        * 将计算结果通过writer对象的write方法写入shuffle的过程，在调用该方法中会调用RDD的iterator方法进行计算
+        * 而iterator方法中进行的最终运算的方法是compute方法
+        */
       writer.write(rdd.iterator(partition, context).asInstanceOf[Iterator[_ <: Product2[Any, Any]]])
       writer.stop(success = true).get
     } catch {

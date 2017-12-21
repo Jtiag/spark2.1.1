@@ -39,6 +39,9 @@ import org.apache.spark.util.CallSite
 
 // ShuffleMapStages也可以作为DAGScheduler.submitMapStage的作业独立提交。 对于这样的阶段，
 // 提交它们的ActiveJobs在mapStageJobs中进行跟踪。 请注意，可能有多个ActiveJob尝试计算相同的shuffle map阶段。
+
+// ShuffleMapStage处理最后stage的主要任务是：将数据 partition 好，并持久化
+// 该 stage 的 final RDD 每输出一个 record 就将其 partition 并持久化
 private[spark] class ShuffleMapStage(
     id: Int,
     rdd: RDD[_],

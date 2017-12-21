@@ -96,6 +96,9 @@ private[spark] abstract class Task[T](
       Option(taskAttemptId), Option(attemptNumber)).setCurrentContext()
 
     try {
+      /**
+        * 抽象方法（shuffleMapTask，resultTask等方法继承了Task抽象类实现了该方法），内部会调用RDD的iterator()方法
+        */
       runTask(context)
     } catch {
       case e: Throwable =>
