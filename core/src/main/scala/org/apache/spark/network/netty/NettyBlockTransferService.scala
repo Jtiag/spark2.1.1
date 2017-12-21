@@ -84,6 +84,14 @@ private[spark] class NettyBlockTransferService(
     Utils.startServiceOnPort(_port, startService, conf, getClass.getName)._1
   }
 
+  /**
+    * 使用该方法去远程节点上拉取fileSegment 以前是用connectionManager
+    * @param host
+    * @param port
+    * @param execId
+    * @param blockIds
+    * @param listener
+    */
   override def fetchBlocks(
       host: String,
       port: Int,

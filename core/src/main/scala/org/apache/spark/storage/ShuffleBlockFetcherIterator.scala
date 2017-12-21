@@ -277,6 +277,10 @@ final class ShuffleBlockFetcherIterator(
     // Split local and remote blocks.
     val remoteRequests = splitLocalRemoteBlocks()
     // Add the remote requests into our queue in a random order
+    /**
+      * ShuffleBlockFetcherIterator收到获取数据的任务后，会生成一个个 fetchRequest，每个 fetchRequest 包含去某个节点获取
+      若干个 FileSegments 的任务
+      */
     fetchRequests ++= Utils.randomize(remoteRequests)
     assert ((0 == reqsInFlight) == (0 == bytesInFlight),
       "expected reqsInFlight = 0 but found reqsInFlight = " + reqsInFlight +

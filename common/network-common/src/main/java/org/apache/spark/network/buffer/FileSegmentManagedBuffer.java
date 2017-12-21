@@ -60,6 +60,10 @@ public final class FileSegmentManagedBuffer extends ManagedBuffer {
     try {
       channel = new RandomAccessFile(file, "r").getChannel();
       // Just copy the buffer if it's sufficiently small, as memory mapping has a high overhead.
+      /**
+       * FileSegment 不超过 spark.storage.memoryMapThreshold=8KB ，那么 diskStore 在读取 FileSegment 的时候会直接将
+       FileSegment 放到内存中
+       */
       if (length < conf.memoryMapBytes()) {
         ByteBuffer buf = ByteBuffer.allocate((int) length);
         channel.position(offset);
@@ -73,6 +77,10 @@ public final class FileSegmentManagedBuffer extends ManagedBuffer {
         buf.flip();
         return buf;
       } else {
+        /**
+         * 使用 RandomAccessFile 中 FileChannel 的内存映射方法来读取 FileSegment（这样可
+         以将大的 FileSegment 加载到内存）
+         */
         return channel.map(FileChannel.MapMode.READ_ONLY, offset, length);
       }
     } catch (IOException e) {

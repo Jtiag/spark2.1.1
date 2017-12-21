@@ -143,9 +143,13 @@ public class TransportConf {
    * Minimum size of a block that we should start using memory map rather than reading in through
    * normal IO operations. This prevents Spark from memory mapping very small blocks. In general,
    * memory mapping has high overhead for blocks close to or below the page size of the OS.
+   * 内存映射的开销很大，使用限定就是为了避免小的块使用内存映射
    */
   public int memoryMapBytes() {
     return Ints.checkedCast(JavaUtils.byteStringAsBytes(
+            /**
+             * 1.3.x是8kb
+             */
       conf.get("spark.storage.memoryMapThreshold", "2m")));
   }
 
