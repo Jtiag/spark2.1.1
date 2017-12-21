@@ -281,7 +281,7 @@ abstract class RDD[T: ClassTag](
    * subclasses of RDD.
    */
   final def iterator(split: Partition, context: TaskContext): Iterator[T] = {
-    // 判断数据是否缓存
+    // 判断此RDD的持久化等级是否为NONE
     if (storageLevel != StorageLevel.NONE) {
       getOrCompute(split, context)
     } else {
@@ -327,6 +327,7 @@ abstract class RDD[T: ClassTag](
 
   /**
    * Gets or computes an RDD partition. Used by RDD.iterator() when an RDD is cached.
+    * 如果持久化等级不是是NONE则先去缓存块中查看是否有缓存，若无再进行计算
    */
   private[spark] def getOrCompute(partition: Partition, context: TaskContext): Iterator[T] = {
     val blockId = RDDBlockId(id, partition.index)
@@ -350,6 +351,7 @@ abstract class RDD[T: ClassTag](
         } else {
           new InterruptibleIterator(context, blockResult.data.asInstanceOf[Iterator[T]])
         }
+      // Right表示有block
       case Right(iter) =>
         new InterruptibleIterator(context, iter.asInstanceOf[Iterator[T]])
     }

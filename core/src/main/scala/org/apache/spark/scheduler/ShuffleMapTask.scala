@@ -110,10 +110,13 @@ private[spark] class ShuffleMapTask(
       val manager = SparkEnv.get.shuffleManager
       // 从shuffleManager中获取shuffleWriter
       writer = manager.getWriter[Any, Any](dep.shuffleHandle, partitionId, context)
-      // 使用rdd的iterator调用自定义算子，而该方法中进行最终运算的是compute方法
+      // 该过程调用rdd的iterator方法调用自定义算子，而该方法中进行最终运算的是compute方法
       // 执行成功后，RDD的该分区处理完，返回的数据通过shuffleWriter，经过hashPartition后，
       // 写入自定义的bucket函数返回值MapStatus，MapStatus封装了shuffleMapTask结果数据，是blcokManager信息，
       // blcokManager是spark底层存储的一个组件。
+      /**
+        * 将计算结果通过writer对象的write方法写入shuffle的过程
+        */
       writer.write(rdd.iterator(partition, context).asInstanceOf[Iterator[_ <: Product2[Any, Any]]])
       writer.stop(success = true).get
     } catch {
