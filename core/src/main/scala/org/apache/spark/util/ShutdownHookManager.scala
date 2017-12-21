@@ -47,6 +47,7 @@ private[spark] object ShutdownHookManager extends Logging {
 
   private lazy val shutdownHooks = {
     val manager = new SparkShutdownHookManager()
+    // 会启动一个线程来同步运行钩子函数
     manager.install()
     manager
   }
@@ -166,7 +167,7 @@ private[spark] object ShutdownHookManager extends Logging {
 }
 
 private [util] class SparkShutdownHookManager {
-
+  // 使用默认的初始容量(11)，根据它们的自然顺序来排序它的元素。
   private val hooks = new PriorityQueue[SparkShutdownHook]()
   @volatile private var shuttingDown = false
 
@@ -188,7 +189,7 @@ private [util] class SparkShutdownHookManager {
       Try(Utils.logUncaughtExceptions(nextHook.run()))
     }
   }
-
+  // 把传入的hook函数同步的加入到优先队列中
   def add(priority: Int, hook: () => Unit): AnyRef = {
     hooks.synchronized {
       if (shuttingDown) {
@@ -205,7 +206,7 @@ private [util] class SparkShutdownHookManager {
   }
 
 }
-
+// 定义排序
 private class SparkShutdownHook(private val priority: Int, hook: () => Unit)
   extends Comparable[SparkShutdownHook] {
 

@@ -52,6 +52,7 @@ import org.apache.spark.util.{ChildFirstURLClassLoader, MutableURLClassLoader, U
  * Whether to submit, kill, or request the status of an application.
  * The latter two operations are currently supported only for standalone and Mesos cluster modes.
  */
+// kill 和 request status操作只支持standalone 和 Mesos的集群模式
 private[deploy] object SparkSubmitAction extends Enumeration {
   type SparkSubmitAction = Value
   val SUBMIT, KILL, REQUEST_STATUS = Value
@@ -63,6 +64,8 @@ private[deploy] object SparkSubmitAction extends Enumeration {
  * This program handles setting up the classpath with relevant Spark dependencies and provides
  * a layer over the different cluster managers and deploy modes that Spark supports.
  */
+// 启动Spark应用程序的主要gateway
+// 该程序处理设置类路径与相关的Spark依赖关系，并为不同的集群管理器提供一个层，并部署Spark支持的模式
 object SparkSubmit {
 
   // Cluster managers
@@ -114,9 +117,11 @@ object SparkSubmit {
     exitFn(0)
   }
   // scalastyle:on println
-
+  // 一旦使用spark-submit脚本执行spark作业时会调用SparkSubmit伴生对象的main方法
   def main(args: Array[String]): Unit = {
+    // 解析和封装来自spark-submit脚本的参数。env参数用于测试
     val appArgs = new SparkSubmitArguments(args)
+    // 如果开启了debug模式就打印出参数
     if (appArgs.verbose) {
       // scalastyle:off println
       printStream.println(appArgs)
@@ -155,16 +160,31 @@ object SparkSubmit {
    * Second, we use this launch environment to invoke the main method of the child
    * main class.
    */
+  // 使用提供的参数提交应用程序。这分为两个步骤。首先，我们通过设置适当的类路径、系统属性，
+  // 以及基于集群管理器和部署模式运行子类的应用程序参数来准备启动环境。其次，我们使用这个启动环境来调用子主类的main方法。
+  /**
+    * submit方法的主要功能就是使用传进来的参数来提交应用程序。
+    * 主要分为两步骤：
+    * 1. 准备启动所需的环境，包括设置classpath、系统参数和应用程序的参数(根据部署模式和cluster
+    * manager运行child main类)。
+    * 2. 使用上一步准备好的环境调用child main class中的main函数
+    * 所以如果是spark-shell，child main class就是org.apache.spark.repl.Main，如果是
+    * spark-submit直接进行提交，child main class就是用户编写的应用程序(含有main方法的类)
+    */
   @tailrec
   private def submit(args: SparkSubmitArguments): Unit = {
+    // 准备提交应用程序的环境。这返回一个4元组:(1)子进程的参数，(2)子类路径条目的列表，(3)系统属性的映射，以及(4)用于测试的子对象的主类
     val (childArgs, childClasspath, sysProps, childMainClass) = prepareSubmitEnvironment(args)
-
+    // 该方法中传进来一个自定义spark应用程序的main方法 即spark-submit脚本中指定的main类
     def doRunMain(): Unit = {
       if (args.proxyUser != null) {
+        // 这里是hadoop相关的用户和组的信息
         val proxyUser = UserGroupInformation.createProxyUser(args.proxyUser,
           UserGroupInformation.getCurrentUser())
         try {
+          // 运行用户 给定的操作
           proxyUser.doAs(new PrivilegedExceptionAction[Unit]() {
+            // 执行计算。此方法将在启动优先级后由 AccessController.doPrivileged 调用
             override def run(): Unit = {
               runMain(childArgs, childClasspath, sysProps, childMainClass, args.verbose)
             }
@@ -436,6 +456,7 @@ object SparkSubmit {
 
     // A list of rules to map each argument to system properties or command-line options in
     // each deploy mode; we iterate through these below
+
     val options = List[OptionAssigner](
 
       // All cluster managers
@@ -660,6 +681,7 @@ object SparkSubmit {
    * Note that this main class will not be the one provided by the user if we're
    * running cluster deploy mode or python applications.
    */
+  // 使用提供的启动环境运行子类的主方法。请注意，如果我们运行集群部署模式或python应用程序，这个主类将不是用户提供的
   private def runMain(
       childArgs: Seq[String],
       childClasspath: Seq[String],
@@ -675,7 +697,7 @@ object SparkSubmit {
       printStream.println("\n")
     }
     // scalastyle:on println
-
+    // 下面这些操作是指定当前运行线程的ClassLoader
     val loader =
       if (sysProps.getOrElse("spark.driver.userClassPathFirst", "false").toBoolean) {
         new ChildFirstURLClassLoader(new Array[URL](0),
@@ -685,7 +707,7 @@ object SparkSubmit {
           Thread.currentThread.getContextClassLoader)
       }
     Thread.currentThread.setContextClassLoader(loader)
-
+    // 添加所依赖的jar包
     for (jar <- childClasspath) {
       addJarToClasspath(jar, loader)
     }
@@ -697,6 +719,7 @@ object SparkSubmit {
     var mainClass: Class[_] = null
 
     try {
+      // 通过反射 拿到 application的main类
       mainClass = Utils.classForName(childMainClass)
     } catch {
       case e: ClassNotFoundException =>
@@ -720,11 +743,14 @@ object SparkSubmit {
     }
 
     // SPARK-4170
+    // 应该注意的是，该特性是使用DelayedInit功能实现的，这意味着在主方法被执行之前，对象的字段不会被初始化。
+    // 还应注意，主方法不应被覆盖:整个类主体成为“主方法”。这一特质在未来版本将不再继承自DelayedInit。
     if (classOf[scala.App].isAssignableFrom(mainClass)) {
       printWarning("Subclasses of scala.App may not work correctly. Use a main() method instead.")
     }
-
+    // parameterTypes 为 null，则按空数组处理
     val mainMethod = mainClass.getMethod("main", new Array[String](0).getClass)
+    // 若 mainMethod.getModifiers 包含有static则返回true--main函数是被static 修饰的
     if (!Modifier.isStatic(mainMethod.getModifiers)) {
       throw new IllegalStateException("The main method in the given main class must be static")
     }
@@ -740,6 +766,7 @@ object SparkSubmit {
     }
 
     try {
+      // 如果底层方法是静态的，那么可以忽略指定的 obj 参数。该参数可以为 null
       mainMethod.invoke(null, childArgs.toArray)
     } catch {
       case t: Throwable =>

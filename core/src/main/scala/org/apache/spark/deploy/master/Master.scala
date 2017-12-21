@@ -231,7 +231,7 @@ private[deploy] class Master(
     case RevokedLeadership =>
       logError("Leadership has been revoked -- master shutting down.")
       System.exit(0)
-
+    // 接收从standaloneAppclient发送过来的消息 为了向master注册Application
     case RegisterApplication(description, driver) =>
       // TODO Prevent repeated registrations from some driver
       if (state == RecoveryState.STANDBY) {
@@ -259,23 +259,26 @@ private[deploy] class Master(
               s"executor $execId state transfer from $oldState to RUNNING is illegal")
             appInfo.resetRetryCount()
           }
-
+          // 向Driver发送ExecutorUpdated消息
           exec.application.driver.send(ExecutorUpdated(execId, state, message, exitStatus, false))
-
+          // 如果executor的状态是KILLED, FAILED, LOST, EXITED
           if (ExecutorState.isFinished(state)) {
             // Remove this executor from the worker and app
             logInfo(s"Removing executor ${exec.fullId} because it is $state")
             // If an application has already finished, preserve its
             // state to display its information properly on the UI
             if (!appInfo.isFinished) {
+              // 移除application中已完成或失败的executor
               appInfo.removeExecutor(exec)
             }
+            // 移除worker中相应的executor
             exec.worker.removeExecutor(exec)
 
             val normalExit = exitStatus == Some(0)
             // Only retry certain number of times so we don't go into an infinite loop.
             // Important note: this code path is not exercised by tests, so be very careful when
             // changing this `if` condition.
+            // 非正常退出，并且重试次数已经大于等于executor的最大重试次数 且最大重试次数大于等于0
             if (!normalExit
                 && appInfo.incrementRetryCount() >= MAX_EXECUTOR_RETRIES
                 && MAX_EXECUTOR_RETRIES >= 0) { // < 0 disables this application-killing path
@@ -283,6 +286,7 @@ private[deploy] class Master(
               if (!execs.exists(_.state == ExecutorState.RUNNING)) {
                 logError(s"Application ${appInfo.desc.name} with ID ${appInfo.id} failed " +
                   s"${appInfo.retryCount} times; removing it")
+                // 清除application
                 removeApplication(appInfo, ApplicationState.FAILED)
               }
             }
@@ -291,7 +295,7 @@ private[deploy] class Master(
         case None =>
           logWarning(s"Got status update for unknown executor $appId/$execId")
       }
-
+    // master在接收到worker上传递过来的driver完成信息后，对driver进行移除处理，移除driver的一些缓存信息。然后重新调用schedule重新调度资源
     case DriverStateChanged(driverId, state, exception) =>
       state match {
         case DriverState.ERROR | DriverState.FINISHED | DriverState.KILLED | DriverState.FAILED =>
@@ -385,7 +389,7 @@ private[deploy] class Master(
       timeOutDeadWorkers()
 
   }
-
+  // 接收 ask发送来的消息
   override def receiveAndReply(context: RpcCallContext): PartialFunction[Any, Unit] = {
     case RegisterWorker(
         id, workerHost, workerPort, workerRef, cores, memory, workerWebUiUrl) =>
@@ -595,6 +599,7 @@ private[deploy] class Master(
       app: ApplicationInfo,
       usableWorkers: Array[WorkerInfo],
       spreadOutApps: Boolean): Array[Int] = {
+    // 从application信息中获取该application所在executor需要的core数量
     val coresPerExecutor = app.desc.coresPerExecutor
     val minCoresPerExecutor = coresPerExecutor.getOrElse(1)
     val oneExecutorPerWorker = coresPerExecutor.isEmpty
@@ -611,11 +616,17 @@ private[deploy] class Master(
 
       // If we allow multiple executors per worker, then we can always launch new executors.
       // Otherwise, if there is already an executor on this worker, just give it more cores.
+      // 如果允许在一个worker上启动多个executor，那么就启动一个新的executor
       val launchingNewExecutor = !oneExecutorPerWorker || assignedExecutors(pos) == 0
       if (launchingNewExecutor) {
         val assignedMemory = assignedExecutors(pos) * memoryPerExecutor
         val enoughMemory = usableWorkers(pos).memoryFree - assignedMemory >= memoryPerExecutor
         val underLimit = assignedExecutors.sum + app.executors.size < app.executorLimit
+        // 下面四个条件同时满足才可以调度：
+        // （1）分配的core数大于等于每个executor的最小数
+        // （2）该worker上的空闲的core是否满足需求
+        // （3）该worker是否有足够的剩余mem
+        // （4）application的executor限制
         keepScheduling && enoughCores && enoughMemory && underLimit
       } else {
         // We're adding cores to an existing executor, so no need
@@ -665,10 +676,13 @@ private[deploy] class Master(
   private def startExecutorsOnWorkers(): Unit = {
     // Right now this is a very simple FIFO scheduler. We keep trying to fit in the first app
     // in the queue, then the second app, etc.
+    // waitingApps是一个arrayBuffer，依次调度队列里的app
+    // coresLeft:需要的core减去分配的core
     for (app <- waitingApps if app.coresLeft > 0) {
       val coresPerExecutor: Option[Int] = app.desc.coresPerExecutor
       // Filter out workers that don't have enough resources to launch an executor
       // sortBy默认按照升序排列
+      // 挑选出有足够core和mem资源的worker
       val usableWorkers = workers.toArray.filter(_.state == WorkerState.ALIVE)
         .filter(worker => worker.memoryFree >= app.desc.memoryPerExecutorMB &&
           worker.coresFree >= coresPerExecutor.getOrElse(1))
@@ -677,6 +691,7 @@ private[deploy] class Master(
 
       // Now that we've decided how many cores to allocate on each worker, let's allocate them
       for (pos <- 0 until usableWorkers.length if assignedCores(pos) > 0) {
+        // 将worker上的资源分配给executor
         allocateWorkerResourceToExecutors(
           app, assignedCores(pos), coresPerExecutor, usableWorkers(pos))
       }
@@ -716,18 +731,27 @@ private[deploy] class Master(
       return
     }
     // Drivers take strict precedence over executors
+    // Random.shuffle 的作用是随机打乱集合内的元素，拿到随机打乱的worker集合
     val shuffledAliveWorkers = Random.shuffle(workers.toSeq.filter(_.state == WorkerState.ALIVE))
     val numWorkersAlive = shuffledAliveWorkers.size
     var curPos = 0
+    // 首先，调度driver,为什么要调度？什么情况下会注册driver？并导致driver会被调度
+    // 其实只有用yarn-cluster模式提交的时候，才会注册driver；因为standalone client和yarn-client模式，都会在本地直接
+    // 启动driver，而不会来注册driver，就更不可能让master调度driver了
+
+    // 遍历waitingDrivers的ArrayBuffer  driver的调度机制
     for (driver <- waitingDrivers.toList) { // iterate over a copy of waitingDrivers
       // We assign workers to each waiting driver in a round-robin fashion. For each driver, we
       // start from the last worker that was assigned a driver, and continue onwards until we have
       // explored all alive workers.
       var launched = false
       var numWorkersVisited = 0
+      // 只要还有活着的Workers就继续遍历，而且当前这个driver还没有启动，即launched为false
       while (numWorkersVisited < numWorkersAlive && !launched) {
         val worker = shuffledAliveWorkers(curPos)
         numWorkersVisited += 1
+        // 如果当前的这个worker的空闲内存量大于等于driver需要的内存
+        // 并且worker的空闲cpu数量，大于等于driver需要的cpu数量
         if (worker.memoryFree >= driver.desc.mem && worker.coresFree >= driver.desc.cores) {
           launchDriver(worker, driver)
           waitingDrivers -= driver
@@ -742,8 +766,10 @@ private[deploy] class Master(
   private def launchExecutor(worker: WorkerInfo, exec: ExecutorDesc): Unit = {
     logInfo("Launching executor " + exec.fullId + " on worker " + worker.id)
     worker.addExecutor(exec)
+    // Master向worker发送启动Executor的消息LaunchExecutor
     worker.endpoint.send(LaunchExecutor(masterUrl,
       exec.application.id, exec.id, exec.application.desc, exec.cores, exec.memory))
+    // Master向Driver发送ExecutorAdded消息告诉Driver，worker已经启动Executor
     exec.application.driver.send(
       ExecutorAdded(exec.id, worker.id, worker.hostPort, exec.cores, exec.memory))
   }
@@ -997,11 +1023,17 @@ private[deploy] class Master(
     val date = new Date(now)
     new DriverInfo(now, newDriverId(date), desc, date)
   }
-
+  // 将指定driver与指定worker关联起来。也就是说，worker类有个drivers属性，是个hashmap，存放该worker所管理的所有driver，
+  // 该方法会将该driver放入worker自己的drivers（hashmap）里，而driver有个成员变量worker，记录driver运行时所属的worker。
+  // 这样worker与driver就相互关联起来。
   private def launchDriver(worker: WorkerInfo, driver: DriverInfo) {
     logInfo("Launching driver " + driver.id + " on worker " + worker.id)
+    // 将driver加入到worker的内存缓存结构中
+    // 将worker内使用的内存和cpu数量，都加上driver需要的内存和cpu数量
     worker.addDriver(driver)
+    // 同时把worker也加入到driver内部的缓存结构中
     driver.worker = Some(worker)
+    // 然后调用worker的RpcEndpointRef 给它发送LaunchDriver消息，让worker来启动Driver
     worker.endpoint.send(LaunchDriver(driver.id, driver.desc))
     driver.state = DriverState.RUNNING
   }

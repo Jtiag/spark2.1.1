@@ -254,6 +254,7 @@ class SparkContext(config: SparkConf) extends Logging {
       conf: SparkConf,
       isLocal: Boolean,
       listenerBus: LiveListenerBus): SparkEnv = {
+    // 创建Driver的运行时环境，注意这里的numDriverCores是local模式下用来执行计算的cores的个数，如果不是本地模式的话就是0
     SparkEnv.createDriverEnv(conf, isLocal, listenerBus, SparkContext.numDriverCores(master))
   }
 
@@ -429,6 +430,7 @@ class SparkContext(config: SparkConf) extends Logging {
     listenerBus.addListener(jobProgressListener)
 
     // Create the Spark execution environment (cache, map output tracker, etc)
+    // 首先Driver服务的开启是在创建Driver的运行时环境的时候完成的
     _env = createSparkEnv(_conf, isLocal, listenerBus)
     SparkEnv.set(_env)
 
@@ -1925,6 +1927,7 @@ class SparkContext(config: SparkConf) extends Logging {
     if (conf.getBoolean("spark.logLineage", false)) {
       logInfo("RDD's recursive dependencies:\n" + rdd.toDebugString)
     }
+    // 一个action操作最终会调用dagScheduler的runJob()
     dagScheduler.runJob(rdd, cleanedFunc, partitions, callSite, resultHandler, localProperties.get)
     progressBar.foreach(_.finishAll())
     rdd.doCheckpoint()
@@ -2482,6 +2485,7 @@ object SparkContext extends Logging {
    */
   private[spark] def numDriverCores(master: String): Int = {
     def convertToInt(threads: String): Int = {
+      // 向 Java 虚拟机返回可用处理器的数目
       if (threads == "*") Runtime.getRuntime.availableProcessors() else threads.toInt
     }
     master match {

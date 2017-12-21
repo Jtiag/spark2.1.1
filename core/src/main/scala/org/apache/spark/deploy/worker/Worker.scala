@@ -437,7 +437,7 @@ private[deploy] class Worker(
     case ReconnectWorker(masterUrl) =>
       logInfo(s"Master with url $masterUrl requested this worker to reconnect.")
       registerWithMaster()
-
+      // worker接收从master发送过来的LaunchExecutor来启动executor
     case LaunchExecutor(masterUrl, appId, execId, appDesc, cores_, memory_) =>
       if (masterUrl != activeMasterUrl) {
         logWarning("Invalid Master (" + masterUrl + ") attempted to launch executor.")
@@ -461,6 +461,7 @@ private[deploy] class Worker(
               appDir.getAbsolutePath()
             }.toSeq)
           appDirectories(appId) = appLocalDirs
+          // 创建ExecutorRunner 仅用于standalone模式
           val manager = new ExecutorRunner(
             appId,
             execId,
@@ -477,10 +478,14 @@ private[deploy] class Worker(
             workerUri,
             conf,
             appLocalDirs, ExecutorState.RUNNING)
+          // 将ExecutorRunner加入到executors缓存
           executors(appId + "/" + execId) = manager
+          // 启动ExecutorRunner内部的线程来执行并监控executor进程的启动
+          // 在start中executor启动后会向worker发送ExecutorStateChanged消息
           manager.start()
           coresUsed += cores_
           memoryUsed += memory_
+          // worker向master发送ExecutorStateChanged消息
           sendToMaster(ExecutorStateChanged(appId, execId, manager.state, None, None))
         } catch {
           case e: Exception =>
@@ -493,8 +498,10 @@ private[deploy] class Worker(
               Some(e.toString), None))
         }
       }
-
+    // 接收从ExecutorRunner发送过来的ExecutorStateChanged消息告诉worker已启动executor
     case executorStateChanged @ ExecutorStateChanged(appId, execId, state, message, exitStatus) =>
+      // 该函数中worker给master发送一条ExecutorStateChanged消息，告诉Master当前executor的状态
+      // 若executor正常退出那么master会重新调用schedule()函数从新调度资源
       handleExecutorStateChanged(executorStateChanged)
 
     case KillExecutor(masterUrl, appId, execId) =>
@@ -513,6 +520,7 @@ private[deploy] class Worker(
     // 接收从master中 launchDriver()发送过来的LaunchDriver消息来启动driver
     case LaunchDriver(driverId, driverDesc) =>
       logInfo(s"Asked to launch driver $driverId")
+      // 构造一个新的driver
       val driver = new DriverRunner(
         conf,
         driverId,
@@ -522,9 +530,11 @@ private[deploy] class Worker(
         self,
         workerUri,
         securityMgr)
+      // 将新生成的driver加入到drivers里面，drivers是个hashmap
       drivers(driverId) = driver
+      // 启动内部的线程来管理Driver
       driver.start()
-
+      // 记录该driver所消耗的该worker上的内存和core
       coresUsed += driverDesc.cores
       memoryUsed += driverDesc.mem
 
@@ -576,9 +586,11 @@ private[deploy] class Worker(
       appDirectories.remove(id).foreach { dirList =>
         logInfo(s"Cleaning up local directories for application $id")
         dirList.foreach { dir =>
+          // 递归的删除本地目录及文件
           Utils.deleteRecursively(new File(dir))
         }
       }
+      // 清除与已退出应用程序关联的所有shuffle文件
       shuffleService.applicationRemoved(id)
     }
   }
@@ -589,6 +601,7 @@ private[deploy] class Worker(
    */
   private def sendToMaster(message: Any): Unit = {
     master match {
+        // 给master发送一条消息
       case Some(masterRef) => masterRef.send(message)
       case None =>
         logWarning(
@@ -650,15 +663,19 @@ private[deploy] class Worker(
         logDebug(s"Driver $driverId changed state to $state")
     }
     sendToMaster(driverStateChanged)
+    // 从worker中移除已完成的DriverRunner
     val driver = drivers.remove(driverId).get
+    // 将已完成的DriverRunner加入到已完成Driver 的LinkedHashMap
     finishedDrivers(driverId) = driver
     trimFinishedDriversIfNecessary()
+    // 将该Driver的所占用的worker的内存及cpu资源释放
     memoryUsed -= driver.driverDesc.mem
     coresUsed -= driver.driverDesc.cores
   }
 
   private[worker] def handleExecutorStateChanged(executorStateChanged: ExecutorStateChanged):
     Unit = {
+    // worker给master发送一条executorStateChanged消息
     sendToMaster(executorStateChanged)
     val state = executorStateChanged.state
     if (ExecutorState.isFinished(state)) {
@@ -671,9 +688,12 @@ private[deploy] class Worker(
           logInfo("Executor " + fullId + " finished with state " + state +
             message.map(" message " + _).getOrElse("") +
             exitStatus.map(" exitStatus " + _).getOrElse(""))
+          // 清除worker中已完成的executor
           executors -= fullId
+          // 把已完成的executor加入到已完成executor缓存中
           finishedExecutors(fullId) = executor
           trimFinishedExecutorsIfNecessary()
+          // 重新计算worker的剩余 cores和memory
           coresUsed -= executor.cores
           memoryUsed -= executor.memory
         case None =>

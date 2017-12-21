@@ -76,6 +76,7 @@ private[spark] abstract class Task[T](
       attemptNumber: Int,
       metricsSystem: MetricsSystem): T = {
     SparkEnv.get.blockManager.registerTask(taskAttemptId)
+    // 初始化一个taskContext
     context = new TaskContextImpl(
       stageId,
       partitionId,
@@ -211,6 +212,8 @@ private[spark] abstract class Task[T](
  * the task might depend on one of the JARs. Thus we serialize each task as multiple objects, by
  * first writing out its dependencies.
  */
+// 处理任务的传输及其依赖，因为这可能有点棘手。 我们需要向每个任务发送JARs和文件到SparkContext，以确保worker节点了解它，
+// 但是我们不能将其作为Task的一部分，因为任务中的用户代码可能依赖于 JARs。 因此，我们将每个任务序列化为多个对象，首先写出它的依赖关系。
 private[spark] object Task {
   /**
    * Serialize a task and the current app dependencies (files and JARs added to the SparkContext)

@@ -225,6 +225,13 @@ private[spark] object Utils extends Logging {
   // scalastyle:off classforname
   /** Preferred alternative to Class.forName(className) */
   def classForName(className: String): Class[_] = {
+    // 使用给定的类加载器返回与给定字符串名称的类或接口相关联的Class对象。 给定类或接口的完全限定名称（以与getName相同的格式），
+    // 此方法将尝试查找，加载和链接类或接口。 指定的类加载器用于加载类或接口。 如果参数加载器为null，则通过bootstrap class loader引导类加载器加载该类。
+    // 只有在initialize参数为true并且尚未被初始化的情况下，才初始化该类。
+    // 如果name表示一个原始类型或void，则会尝试在名称为name的未命名的包中找到用户定义的类。
+    // 因此，该方法不能用于获取表示原始类型或void的任何Class对象。
+
+    // 如果名称表示数组类，则加载数组类的组件类型，但未初始化。
     Class.forName(className, true, getContextOrSparkClassLoader)
     // scalastyle:on classforname
   }
@@ -434,6 +441,11 @@ private[spark] object Utils extends Logging {
    * Throws SparkException if the target file already exists and has different contents than
    * the requested file.
    */
+    // 下载一个文件或目录到目标目录。支持以多种方式获取文件，包括基于URL参数的标准文件系统上的HTTP、hadoop兼容文件系统和文件。
+    // 获取目录仅由hadoop兼容的文件系统支持。
+
+    // 如果useCache是true，那么首先尝试将该文件获取到 在运行相同应用程序的executors中共享的 本地缓存中。
+    // useCache主要用于executors，而不是本地模式。如果目标文件已经存在并具有与请求文件不同的内容，则抛出SparkException。
   def fetchFile(
       url: String,
       targetDir: File,
@@ -442,9 +454,11 @@ private[spark] object Utils extends Logging {
       hadoopConf: Configuration,
       timestamp: Long,
       useCache: Boolean) {
+      // 从uri的原始路径获取文件名并解码。如果uri的原始路径以“/”结束，则返回最后"/"后的名称，其实就是jar包名或者文件名
     val fileName = decodeFileNameInURI(new URI(url))
     val targetFile = new File(targetDir, fileName)
     val fetchCacheEnabled = conf.getBoolean("spark.files.useFetchCache", defaultValue = true)
+      // 使用缓存
     if (useCache && fetchCacheEnabled) {
       val cachedFileName = s"${url.hashCode}${timestamp}_cache"
       val lockFileName = s"${url.hashCode}${timestamp}_lock"
@@ -454,6 +468,7 @@ private[spark] object Utils extends Logging {
       // Only one executor entry.
       // The FileLock is only used to control synchronization for executors download file,
       // it's always safe regardless of lock type (mandatory or advisory).
+      // 获取对此通道的文件的独占锁定
       val lock = lockFileChannel.lock()
       val cachedFile = new File(localDir, cachedFileName)
       try {
@@ -629,6 +644,10 @@ private[spark] object Utils extends Logging {
    * Throws SparkException if the target file already exists and has different contents than
    * the requested file.
    */
+  // 下载一个文件或目录到目标目录。支持以多种方式获取文件，包括基于URL参数的标准文件系统上的HTTP、hadoop兼容文件系统和文件。
+  // 获取目录仅由hadoop兼容的文件系统支持。
+
+  // 如果目标文件已经存在并具有与请求文件不同的内容，则抛出SparkException
   private def doFetchFile(
       url: String,
       targetDir: File,
@@ -1012,6 +1031,7 @@ private[spark] object Utils extends Logging {
           if (savedIOException != null) {
             throw savedIOException
           }
+          // 在jvm退出前执行删除目录的钩子函数
           ShutdownHookManager.removeShutdownDeleteDir(file)
         }
       } finally {
@@ -1173,17 +1193,23 @@ private[spark] object Utils extends Logging {
       workingDir: File = new File("."),
       extraEnvironment: Map[String, String] = Map.empty,
       redirectStderr: Boolean = true): Process = {
+    // 以targetDir创建一个ProcessBuilder
     val builder = new ProcessBuilder(command: _*).directory(workingDir)
+    // 返回此进程生成器环境的字符串映射视图
     val environment = builder.environment()
+    // 把extraEnvironment参数添加到environment
     for ((key, value) <- extraEnvironment) {
       environment.put(key, value)
     }
+    // 使用此进程生成器的属性启动一个新进程
     val process = builder.start()
     if (redirectStderr) {
       val threadName = "redirect stderr for command " + command(0)
       def log(s: String): Unit = logInfo(s)
+      // 返回并启动一个守护线程，该线程按行处理输入流的内容
       processStreamByLine(threadName, process.getErrorStream, log)
     }
+    // 返回process来管理进程
     process
   }
 
@@ -2206,14 +2232,17 @@ private[spark] object Utils extends Logging {
       startService: Int => (T, Int),
       conf: SparkConf,
       serviceName: String = ""): (T, Int) = {
-
+    // 我们传进来的startPort为0，所以会生成一个随机的端口号
     require(startPort == 0 || (1024 <= startPort && startPort < 65536),
       "startPort should be between 1024 and 65535 (inclusive), or 0 for a random free port.")
 
     val serviceString = if (serviceName.isEmpty) "" else s" '$serviceName'"
+    // 通过"spark.port.maxRetries"设置最大重试次数，如果没有设置，而设置中包括"spark.testing"，
+    // 最大重试次数就是100次，否则最大重试次数就是10次
     val maxRetries = portMaxRetries(conf)
     for (offset <- 0 to maxRetries) {
       // Do not increment port if startPort is 0, which is treated as a special port
+      // 设置端口号
       val tryPort = if (startPort == 0) {
         startPort
       } else {
@@ -2221,7 +2250,11 @@ private[spark] object Utils extends Logging {
         ((startPort + offset - 1024) % (65536 - 1024)) + 1024
       }
       try {
+        // 开启服务，并返回服务和端口号，注意这里的startService是上面传进来的那个函数startNettyRpcEnv
+        // 所以我们实际上执行的是startNettyRpcEnv(tryPort)，而根据startNettyRpcEnv函数的定义，实际
+        // 上是调用了nettyEnv.startServer(tryPort)方法
         val (service, port) = startService(tryPort)
+        // 创建成功后打印日志，serviceString就是"sparkDriver"
         logInfo(s"Successfully started service$serviceString on port $port.")
         return (service, port)
       } catch {

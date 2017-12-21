@@ -50,6 +50,7 @@ import org.apache.spark.shuffle.ShuffleWriter
  * @param appId id of the app this task belongs to
  * @param appAttemptId attempt id of the app this task belongs to
  */
+// 一个ShuffleMapTask将一个RDD的元素划分为多个bucket(基于在ShuffleDependency中指定的一个分区器)。
 private[spark] class ShuffleMapTask(
     stageId: Int,
     stageAttemptId: Int,
@@ -105,12 +106,14 @@ private[spark] class ShuffleMapTask(
       */
     var writer: ShuffleWriter[Any, Any] = null
     try {
+      // 获取shuffleManager
       val manager = SparkEnv.get.shuffleManager
+      // 从shuffleManager中获取shuffleWriter
       writer = manager.getWriter[Any, Any](dep.shuffleHandle, partitionId, context)
-      /**
-        * 将计算结果通过writer对象的write方法写入shuffle的过程，在调用该方法中会调用RDD的iterator方法进行计算
-        * 而iterator方法中进行的最终运算的方法是compute方法
-        */
+      // 使用rdd的iterator调用自定义算子，而该方法中进行最终运算的是compute方法
+      // 执行成功后，RDD的该分区处理完，返回的数据通过shuffleWriter，经过hashPartition后，
+      // 写入自定义的bucket函数返回值MapStatus，MapStatus封装了shuffleMapTask结果数据，是blcokManager信息，
+      // blcokManager是spark底层存储的一个组件。
       writer.write(rdd.iterator(partition, context).asInstanceOf[Iterator[_ <: Product2[Any, Any]]])
       writer.stop(success = true).get
     } catch {

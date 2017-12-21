@@ -85,6 +85,7 @@ private class ClientEndpoint(
         // 将所有的在SparkConf中设置的属性赋值给java options的序列
         val sparkJavaOpts = Utils.sparkJavaOpts(conf)
         val javaOpts = sparkJavaOpts ++ extraJavaOpts
+        // 把主类，类路径，等封装成Command
         val command = new Command(mainClass,
           Seq("{{WORKER_URL}}", "{{USER_JAR}}", driverArgs.mainClass) ++ driverArgs.driverOptions,
           sys.env, classPathEntries, libraryPathEntries, javaOpts)
@@ -212,6 +213,7 @@ private class ClientEndpoint(
 /**
  * Executable utility for starting and terminating drivers inside of a standalone cluster.
  */
+// Client：负责提交作业到Master
 object Client {
   def main(args: Array[String]) {
     // scalastyle:off println
@@ -228,12 +230,13 @@ object Client {
       conf.set("spark.rpc.askTimeout", "10s")
     }
     Logger.getRootLogger.setLevel(driverArgs.logLevel)
-    // 创建一个driverClient的Rpc环境，并将得到Master和client的远程引用
+    // 创建一个driverClient的Rpc环境
     val rpcEnv =
       RpcEnv.create("driverClient", Utils.localHostName(), 0, conf, new SecurityManager(conf))
-
+    // 得到Master的远程引用
     val masterEndpoints = driverArgs.masters.map(RpcAddress.fromSparkURL).
       map(rpcEnv.setupEndpointRef(_, Master.ENDPOINT_NAME))
+    // 得到client的远程引用
     rpcEnv.setupEndpoint("client", new ClientEndpoint(rpcEnv, driverArgs, masterEndpoints, conf))
     // 启动rpc环境
     rpcEnv.awaitTermination()

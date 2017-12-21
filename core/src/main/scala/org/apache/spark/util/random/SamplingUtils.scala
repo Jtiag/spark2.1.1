@@ -30,6 +30,7 @@ private[spark] object SamplingUtils {
    * @param seed random seed
    * @return (samples, input size)
    */
+  // 典型的水塘抽样实现，唯一不同的是该算法还记录下i的值，这个就是该分区中元素的总和。
   def reservoirSampleAndCount[T: ClassTag](
       input: Iterator[T],
       k: Int,

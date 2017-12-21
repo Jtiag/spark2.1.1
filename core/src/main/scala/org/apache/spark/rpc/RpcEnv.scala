@@ -52,8 +52,10 @@ private[spark] object RpcEnv {
       conf: SparkConf,
       securityManager: SecurityManager,
       clientMode: Boolean): RpcEnv = {
+    // 封装成RpcEnvConfig，这里的name是"sparkDriver"，host是"driver"，clientMode是"false"
     val config = RpcEnvConfig(conf, name, bindAddress, advertiseAddress, port, securityManager,
       clientMode)
+    // 调用NettyRpcEnvFactory的create()方法
     new NettyRpcEnvFactory().create(config)
   }
 }
@@ -96,7 +98,7 @@ private[spark] abstract class RpcEnv(conf: SparkConf) {
   /**
    * Retrieve the [[RpcEndpointRef]] represented by `uri` asynchronously.
    */
-  // 通过uri异步地查询RpcEndpointRef
+  // 通过uri异步地获取RpcEndpointRef
   def asyncSetupEndpointRefByURI(uri: String): Future[RpcEndpointRef]
 
   /**

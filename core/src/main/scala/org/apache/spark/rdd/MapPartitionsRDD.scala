@@ -33,7 +33,7 @@ private[spark] class MapPartitionsRDD[U: ClassTag, T: ClassTag](
   override val partitioner = if (preservesPartitioning) firstParent[T].partitioner else None
 
   override def getPartitions: Array[Partition] = firstParent[T].partitions
-
+  // 这里就是对RDD的partition进行操作。f方法就是自定义的算子方法
   override def compute(split: Partition, context: TaskContext): Iterator[U] =
     f(context, split.index, firstParent[T].iterator(split, context))
 

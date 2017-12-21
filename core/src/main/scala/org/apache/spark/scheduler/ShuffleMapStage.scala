@@ -33,7 +33,7 @@ import org.apache.spark.util.CallSite
  * For such stages, the ActiveJobs that submitted them are tracked in `mapStageJobs`. Note that
  * there can be multiple ActiveJobs trying to compute the same shuffle map stage.
  */
-// ShuffleMapStages是执行DAG的中间阶段，用于产生shuffle的数据。 它们发生在每次shuffle操作之前，
+// ShuffleMapStages是执行DAG的中间阶段，用于产生shuffle的数据。 它们正好发生在每次shuffle操作之前，
 // 并且可能在之前包含多个pipelined操作（例如map和filter）。 执行时，它们保存map输出文件，以后可以通过reduce任务获取。
 // shuffleDep字段描述了每个阶段的shuffle有哪些部分，而outputLocs和numAvailableOutputs等变量跟踪了有多少map输出准备就绪。
 

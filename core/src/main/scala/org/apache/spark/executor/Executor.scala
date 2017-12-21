@@ -47,6 +47,8 @@ import org.apache.spark.util.io.ChunkedByteBuffer
  * An internal RPC interface is used for communication with the driver,
  * except in the case of Mesos fine-grained mode.
  */
+// Spark executor，由一个线程池支持运行任务。可以使用Mesos、YARN和standalone 调度器。
+// 除了Mesos细粒度模式外，驱动程序的通信都是使用内部RPC接口
 private[spark] class Executor(
     executorId: String,
     executorHostname: String,
@@ -162,15 +164,13 @@ private[spark] class Executor(
       attemptNumber: Int,
       taskName: String,
       serializedTask: ByteBuffer): Unit = {
+    // 创建一个TaskRunner类，该类继承了java的runnable接口的一个executor内部类，里面的run方法执行了task的具体启动过程，他是一个java线程。
     val tr = new TaskRunner(context, taskId = taskId, attemptNumber = attemptNumber, taskName,
       serializedTask)
-    /**
-      * 将创建的TaskRunner对象放入即将进行运行的堆栈中 其实就是放在了一个ConcurrentHashMap中
-      */
+    // 将这个task放到runningTasks这个java 并发安全map(ConcurrentHashMap)中，最后将该任务封装的TaskRunner扔给一个线程池中并执行
     runningTasks.put(taskId, tr)
-    /**
-      * 从线程池中分配一条线程给taskRunner
-      */
+    // 在将来某个时间执行给定任务。可以在新线程中或者在现有池线程中执行该任务。 如果无法将任务提交执行，或者因为此执行程序已关闭，
+    // 或者因为已达到其容量，则该任务由当前 RejectedExecutionHandler 处理。
     threadPool.execute(tr)
   }
 
@@ -282,13 +282,13 @@ private[spark] class Executor(
       // is followed by cancel(interrupt=True). Thus we use notifyAll() to avoid a lost wakeup:
       notifyAll()
     }
-
     /**
       * taskRunner的run方法中首先会通过statusUpdate给Driver发送信息汇报自己的状态，说明自己的running状态
       */
     override def run(): Unit = {
       threadId = Thread.currentThread.getId
       Thread.currentThread.setName(threadName)
+      // 返回 Java 虚拟机的线程系统的管理 Bean
       val threadMXBean = ManagementFactory.getThreadMXBean
       val taskMemoryManager = new TaskMemoryManager(env.memoryManager, taskId)
       val deserializeStartTime = System.currentTimeMillis()
@@ -311,6 +311,7 @@ private[spark] class Executor(
           * 反序列化Task的依赖
           */
         val (taskFiles, taskJars, taskProps, taskBytes) =
+          // task进行反序列化
           Task.deserializeWithDependencies(serializedTask)
 
         // Must be set before updateDependencies() is called, in case fetching dependencies
@@ -349,9 +350,7 @@ private[spark] class Executor(
         } else 0L
         var threwException = true
         val value = try {
-          /**
-            * 调用反序列化后的Task.run方法来执行任务，并获取执行结果
-            */
+          // 调用task的run方法 这个方法反回了一个res，封装了task run的返回结果，即Mapstatus，里面封装了shuffleMapTask的数据和输出位置
           val res = task.run(
             taskAttemptId = taskId,
             attemptNumber = attemptNumber,
@@ -444,7 +443,7 @@ private[spark] class Executor(
             serializedDirectResult
           }
         }
-
+        // 向CoarseGrainedExecutorBanckend发送statusUpdate 消息
         execBackend.statusUpdate(taskId, TaskState.FINISHED, serializedResult)
 
       } catch {
