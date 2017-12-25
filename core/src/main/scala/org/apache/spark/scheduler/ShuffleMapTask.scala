@@ -115,7 +115,7 @@ private[spark] class ShuffleMapTask(
       // 写入自定义的bucket函数返回值MapStatus，MapStatus封装了shuffleMapTask结果数据，是blcokManager信息，
       // blcokManager是spark底层存储的一个组件。
       /**
-        * 将计算结果通过writer对象的write方法写入shuffle的过程
+        * ‘
         */
       writer.write(rdd.iterator(partition, context).asInstanceOf[Iterator[_ <: Product2[Any, Any]]])
       writer.stop(success = true).get

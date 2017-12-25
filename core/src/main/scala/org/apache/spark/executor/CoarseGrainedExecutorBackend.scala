@@ -268,6 +268,10 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
     }
   }
 
+  /**
+    * worker中会使用ProcessBuilder来调用这里的main函数来启动CoarseGrainedExecutorBackend
+    * @param args
+    */
   def main(args: Array[String]) {
     var driverUrl: String = null
     var executorId: String = null
@@ -278,7 +282,7 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
     val userClassPath = new mutable.ListBuffer[URL]()
 
     var argv = args.toList
-    // 拼装参数
+    // 解析参数
     while (!argv.isEmpty) {
       argv match {
         case ("--driver-url") :: value :: tail =>
@@ -316,7 +320,7 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
       appId == null) {
       printUsageAndExit()
     }
-    // 开始执行Executor
+    // 开始执行Executor 该run方法中会构建一个CoarseGrainedExecutorBackend实例---也就是构建了一个RPC通信终端
     run(driverUrl, executorId, hostname, cores, appId, workerUrl, userClassPath)
     System.exit(0)
   }

@@ -231,7 +231,7 @@ private[deploy] class Master(
     case RevokedLeadership =>
       logError("Leadership has been revoked -- master shutting down.")
       System.exit(0)
-    // 接收从standaloneAppclient发送过来的消息 为了向master注册Application
+    // 接收从standaloneAppClient发送过来的消息 为了向master注册Application
     case RegisterApplication(description, driver) =>
       // TODO Prevent repeated registrations from some driver
       if (state == RecoveryState.STANDBY) {
@@ -243,6 +243,9 @@ private[deploy] class Master(
         logInfo("Registered app " + description.name + " with ID " + app.id)
         persistenceEngine.addApplication(app)
         driver.send(RegisteredApplication(app.id, self))
+        /**
+          * 最终会调用launchExecutor()
+          */
         schedule()
       }
 
@@ -736,7 +739,7 @@ private[deploy] class Master(
     val numWorkersAlive = shuffledAliveWorkers.size
     var curPos = 0
     // 首先，调度driver,为什么要调度？什么情况下会注册driver？并导致driver会被调度
-    // 其实只有用yarn-cluster模式提交的时候，才会注册driver；因为standalone client和yarn-client模式，都会在本地直接
+    // 其实只有用cluster模式提交的时候，才会注册driver；因为standalone client和yarn-client模式，都会在本地直接
     // 启动driver，而不会来注册driver，就更不可能让master调度driver了
 
     // 遍历waitingDrivers的ArrayBuffer  driver的调度机制

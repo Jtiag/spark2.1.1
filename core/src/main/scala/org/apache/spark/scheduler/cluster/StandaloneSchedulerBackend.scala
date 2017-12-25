@@ -99,6 +99,7 @@ private[spark] class StandaloneSchedulerBackend(
     val sparkJavaOpts = Utils.sparkJavaOpts(conf, SparkConf.isExecutorStartupConf)
     val javaOpts = sparkJavaOpts ++ extraJavaOpts
     // 用command拼接参数，最终会启动org.apache.spark.executor.CoarseGrainedExecutorBackend子进程
+    // 封装命令，该命令发送到worker结点，并根据获取的资源启动后，相当于打开了一个通信通道
     val command = Command("org.apache.spark.executor.CoarseGrainedExecutorBackend",
       args, sc.executorEnvs, classPathEntries ++ testingClassPath, libraryPathEntries, javaOpts)
     val appUIAddress = sc.ui.map(_.appUIAddress).getOrElse("")
@@ -114,9 +115,11 @@ private[spark] class StandaloneSchedulerBackend(
     // ApplicationDescription中包含了启动executor后台进程的main class CoarseGrainedExecutorBackend
     val appDesc = new ApplicationDescription(sc.appName, maxCores, sc.executorMemory, command,
       appUIAddress, sc.eventLogDir, sc.eventLogCodec, coresPerExecutor, initialExecutorLimit)
-    // 创建AppClient 其组合了 ClientEndpoint(ThreadSafeRpcEndpoint的子类)
+    // 构建一个作为应用程序客户端的StandaloneAppClient实例 并将this(StandaloneAppClientListener trait这里的子类为
+    // StandaloneSchedulerBackend)设置为该实例的监听器
+    // 其组合了 ClientEndpoint(ThreadSafeRpcEndpoint的子类)
     client = new StandaloneAppClient(sc.env.rpcEnv, masters, appDesc, this, conf)
-    // 启动AppClient服务 内部会创建ClientEndpoint 然后向master发送RegisterApplication消息
+    // 启动StandaloneAppClient服务 内部会创建ClientEndpoint(RPC通信终端) 然后向master发送RegisterApplication消息
     client.start()
     launcherBackend.setState(SparkAppHandle.State.SUBMITTED)
     waitForRegistration()
