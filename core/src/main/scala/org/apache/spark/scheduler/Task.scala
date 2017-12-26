@@ -97,7 +97,9 @@ private[spark] abstract class Task[T](
       Option(taskAttemptId), Option(attemptNumber)).setCurrentContext()
 
     try {
-      // runtask方法是没有实现的，因为不同子类有不同的runtask行为，如有的是shuffleMapTask有的是resulttask
+      /**
+        * 抽象方法（shuffleMapTask，resultTask等方法继承了Task抽象类实现了该方法），内部会调用RDD的iterator()方法
+        */
       runTask(context)
     } catch {
       case e: Throwable =>

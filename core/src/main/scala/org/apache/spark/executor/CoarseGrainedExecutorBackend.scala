@@ -93,14 +93,25 @@ private[spark] class CoarseGrainedExecutorBackend(
 
     case RegisterExecutorFailed(message) =>
       exitExecutor(1, "Slave registration failed: " + message)
+<<<<<<< HEAD
+
+    /**
+      * 从Driver发送过来的消息LaunchTask
+      */
+=======
     // 启动 task
+>>>>>>> 49b170c6460970282f4fb3848fba3b8702adf514
     case LaunchTask(data) =>
       if (executor == null) {
         exitExecutor(1, "Received LaunchTask command but executor was null")
       } else {
         val taskDesc = ser.deserialize[TaskDescription](data.value)
         logInfo("Got assigned task " + taskDesc.taskId)
+<<<<<<< HEAD
+        // 调用executor的launchTask方法，分配线程给Task，通过launchTask来执行Task
+=======
         // 启动 task的核心处理逻辑
+>>>>>>> 49b170c6460970282f4fb3848fba3b8702adf514
         executor.launchTask(this, taskId = taskDesc.taskId, attemptNumber = taskDesc.attemptNumber,
           taskDesc.name, taskDesc.serializedTask)
       }
@@ -143,6 +154,12 @@ private[spark] class CoarseGrainedExecutorBackend(
     }
   }
 
+  /**
+    * 给Driver发送信息汇报自己的状态，说明自己的running状态--在taskRunner中的run方法中被调用
+    * @param taskId
+    * @param state
+    * @param data
+    */
   override def statusUpdate(taskId: Long, state: TaskState, data: ByteBuffer) {
     val msg = StatusUpdate(executorId, taskId, state, data)
     driver match {
@@ -251,6 +268,10 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
     }
   }
 
+  /**
+    * worker中会使用ProcessBuilder来调用这里的main函数来启动CoarseGrainedExecutorBackend
+    * @param args
+    */
   def main(args: Array[String]) {
     var driverUrl: String = null
     var executorId: String = null
@@ -261,7 +282,7 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
     val userClassPath = new mutable.ListBuffer[URL]()
 
     var argv = args.toList
-    // 拼装参数
+    // 解析参数
     while (!argv.isEmpty) {
       argv match {
         case ("--driver-url") :: value :: tail =>
@@ -299,7 +320,7 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
       appId == null) {
       printUsageAndExit()
     }
-    // 开始执行Executor
+    // 开始执行Executor 该run方法中会构建一个CoarseGrainedExecutorBackend实例---也就是构建了一个RPC通信终端
     run(driverUrl, executorId, hostname, cores, appId, workerUrl, userClassPath)
     System.exit(0)
   }

@@ -77,29 +77,46 @@ private[spark] class ShuffleMapTask(
 
   override def runTask(context: TaskContext): MapStatus = {
     // Deserialize the RDD using the broadcast variable.
+    /**
+      * 返回 Java 虚拟机的线程系统的管理 Bean
+      */
     val threadMXBean = ManagementFactory.getThreadMXBean
     val deserializeStartTime = System.currentTimeMillis()
     val deserializeStartCpuTime = if (threadMXBean.isCurrentThreadCpuTimeSupported) {
       threadMXBean.getCurrentThreadCpuTime
     } else 0L
+    /**
+      * 创建序列化器
+      */
     val ser = SparkEnv.get.closureSerializer.newInstance()
+    /**
+      * 反序列化RDD和依赖关系
+      */
     val (rdd, dep) = ser.deserialize[(RDD[_], ShuffleDependency[_, _, _])](
       ByteBuffer.wrap(taskBinary.value), Thread.currentThread.getContextClassLoader)
-    // 计算反序列化时间
+    /**
+      * RDD反序列化的时间
+      */
     _executorDeserializeTime = System.currentTimeMillis() - deserializeStartTime
     _executorDeserializeCpuTime = if (threadMXBean.isCurrentThreadCpuTimeSupported) {
       threadMXBean.getCurrentThreadCpuTime - deserializeStartCpuTime
     } else 0L
-    // 将数据分区
+    /**
+      * 创建shuffle的writer对象，用来将计算结果写入shuffle管理器
+      */
     var writer: ShuffleWriter[Any, Any] = null
     try {
       // 获取shuffleManager
       val manager = SparkEnv.get.shuffleManager
       // 从shuffleManager中获取shuffleWriter
       writer = manager.getWriter[Any, Any](dep.shuffleHandle, partitionId, context)
-      // Product2是两个组件的笛卡尔乘积
-      // 使用rdd的iterator调用自定义算子，执行成功后，RDD的该分区处理完，返回的数据通过shuffleWriter，经过hashPartition后，写入自定义的bucket
-      // 函数返回值MapStatus，MapStatus封装了shuffleMapTask结果数据，是blcokManager信息，blcokManager是spark底层存储的一个组件。
+      // 该过程调用rdd的iterator方法调用自定义算子，而该方法中进行最终运算的是compute方法
+      // 执行成功后，RDD的该分区处理完，返回的数据通过shuffleWriter，经过hashPartition后，
+      // 写入自定义的bucket函数返回值MapStatus，MapStatus封装了shuffleMapTask结果数据，是blcokManager信息，
+      // blcokManager是spark底层存储的一个组件。
+      /**
+        * ‘
+        */
       writer.write(rdd.iterator(partition, context).asInstanceOf[Iterator[_ <: Product2[Any, Any]]])
       writer.stop(success = true).get
     } catch {

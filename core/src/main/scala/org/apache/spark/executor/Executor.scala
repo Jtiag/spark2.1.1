@@ -150,6 +150,14 @@ private[spark] class Executor(
 
   startDriverHeartbeater()
 
+  /**
+    * 在改方法中通过taskRunner对象在threadPool运行具体的Task
+    * @param context
+    * @param taskId
+    * @param attemptNumber
+    * @param taskName
+    * @param serializedTask
+    */
   def launchTask(
       context: ExecutorBackend,
       taskId: Long,
@@ -274,7 +282,9 @@ private[spark] class Executor(
       // is followed by cancel(interrupt=True). Thus we use notifyAll() to avoid a lost wakeup:
       notifyAll()
     }
-    // 具体的task处理逻辑
+    /**
+      * taskRunner的run方法中首先会通过statusUpdate给Driver发送信息汇报自己的状态，说明自己的running状态
+      */
     override def run(): Unit = {
       threadId = Thread.currentThread.getId
       Thread.currentThread.setName(threadName)
@@ -288,12 +298,18 @@ private[spark] class Executor(
       Thread.currentThread.setContextClassLoader(replClassLoader)
       val ser = env.closureSerializer.newInstance()
       logInfo(s"Running $taskName (TID $taskId)")
+      /**
+        * 给Driver发送信息汇报自己的状态，说明自己的running状态
+        */
       execBackend.statusUpdate(taskId, TaskState.RUNNING, EMPTY_BYTE_BUFFER)
       var taskStart: Long = 0
       var taskStartCpu: Long = 0
       startGCTime = computeTotalGcTime()
 
       try {
+        /**
+          * 反序列化Task的依赖
+          */
         val (taskFiles, taskJars, taskProps, taskBytes) =
           // task进行反序列化
           Task.deserializeWithDependencies(serializedTask)
@@ -301,8 +317,13 @@ private[spark] class Executor(
         // Must be set before updateDependencies() is called, in case fetching dependencies
         // requires access to properties contained within (e.g. for access control).
         Executor.taskDeserializationProps.set(taskProps)
-        // 更新files和下载jars包
+        /**
+          * 通过网络获取所需要的jar
+          */
         updateDependencies(taskFiles, taskJars)
+        /**
+          * 反序列化task本身
+          */
         task = ser.deserialize[Task[Any]](taskBytes, Thread.currentThread.getContextClassLoader)
         task.localProperties = taskProps
         task.setTaskMemoryManager(taskMemoryManager)
@@ -319,7 +340,9 @@ private[spark] class Executor(
 
         logDebug("Task " + taskId + "'s epoch is " + task.epoch)
         env.mapOutputTracker.updateEpoch(task.epoch)
-
+        /**
+          * task计算开始时间
+          */
         // Run the actual task and measure its runtime.
         taskStart = System.currentTimeMillis()
         taskStartCpu = if (threadMXBean.isCurrentThreadCpuTimeSupported) {
@@ -335,6 +358,9 @@ private[spark] class Executor(
           threwException = false
           res
         } finally {
+          /**
+            * 计算完成后清理内存，并检查是否内存泄漏
+            */
           val releasedLocks = env.blockManager.releaseAllLocksForTask(taskId)
           val freedMemory = taskMemoryManager.cleanUpAllAllocatedMemory()
 
@@ -358,6 +384,9 @@ private[spark] class Executor(
             }
           }
         }
+        /**
+          * 计算task完成的时间
+          */
         val taskFinish = System.currentTimeMillis()
         val taskFinishCpu = if (threadMXBean.isCurrentThreadCpuTimeSupported) {
           threadMXBean.getCurrentThreadCpuTime
