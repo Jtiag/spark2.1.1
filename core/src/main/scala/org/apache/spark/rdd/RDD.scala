@@ -330,6 +330,8 @@ abstract class RDD[T: ClassTag](
     * 如果持久化等级不是是NONE则先去缓存块中查看是否有缓存，若无再进行计算
    */
   private[spark] def getOrCompute(partition: Partition, context: TaskContext): Iterator[T] = {
+    // blockId，表明是要存哪个 RDD 的哪个 partition，这个 blockId 类型是 RDDBlockId（memoryStore 里面可能还存放有 task
+    // 的 result 等数据，因此 blockId 的类型是用来区分不同的数据）
     val blockId = RDDBlockId(id, partition.index)
     var readCachedBlock = true
     // This method is called on executors, so we need call SparkEnv.get instead of sc.env.

@@ -50,6 +50,8 @@ class BlockManagerMasterEndpoint(
   private val blockManagerIdByExecutor = new mutable.HashMap[String, BlockManagerId]
 
   // Mapping from block id to the set of block managers that have the block.
+  // partition 被 cache 后所在节点上的 blockManager 会通知 driver 上的
+  // BlockMangerMasterEndpoint 说某 rdd 的 partition 已经被我 cache 了，这个信息会存储在blockLocations: HashMap中。
   private val blockLocations = new JHashMap[BlockId, mutable.HashSet[BlockManagerId]]
 
   private val askThreadPool = ThreadUtils.newDaemonCachedThreadPool("block-manager-ask-thread-pool")

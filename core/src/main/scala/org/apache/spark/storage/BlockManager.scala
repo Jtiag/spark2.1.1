@@ -569,6 +569,9 @@ private[spark] class BlockManager(
    * Return a list of locations for the given block, prioritizing the local machine since
    * multiple block managers can share the same host.
    */
+  // 获取 cached partitions 的存储位置：partition 被 cache 后所在节点上的 blockManager 会通知 driver 上的
+  // BlockMangerMasterEndpoint 说某 rdd 的 partition 已经被我 cache 了，这个信息会存储在 BlockMangerMasterEndpoint 的
+  // blockLocations: HashMap中。
   private def getLocations(blockId: BlockId): Seq[BlockManagerId] = {
     val locs = Random.shuffle(master.getLocations(blockId))
     val (preferredLocs, otherLocs) = locs.partition { loc => blockManagerId.host == loc.host }

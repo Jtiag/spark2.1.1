@@ -183,6 +183,7 @@ class BlockManagerMaster(
      * should not block on waiting for a block manager, which can in turn be waiting for the
      * master endpoint for a response to a prior message.
      */
+    // GetBlock(blockId) 的请求通过driverEndpoint 发送到目标节点
     val response = driverEndpoint.
       askWithRetry[Map[BlockManagerId, Future[Option[BlockStatus]]]](msg)
     val (blockManagerIds, futures) = response.unzip
