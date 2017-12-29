@@ -77,6 +77,7 @@ private[spark] class TorrentBroadcast[T: ClassTag](obj: T, id: Long)
       None
     }
     // Note: use getSizeAsKb (not bytes) to maintain compatibility if no units are provided
+    // TorrentBroadcast blockData的数据块大小
     blockSize = conf.getSizeAsKb("spark.broadcast.blockSize", "4m").toInt * 1024
     checksumEnabled = conf.getBoolean("spark.broadcast.checksum", true)
   }
