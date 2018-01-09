@@ -296,6 +296,7 @@ object SparkEnv extends Logging {
 
     def registerOrLookupEndpoint(
         name: String, endpointCreator: => RpcEndpoint):
+    // 创建之前对当前节点是否是Driver进行了判断。如果是，则创建这个Endpoint；否则，创建Driver的连接。
       RpcEndpointRef = {
       if (isDriver) {
         logInfo("Registering " + name)
@@ -344,7 +345,7 @@ object SparkEnv extends Logging {
     val blockTransferService =
       new NettyBlockTransferService(conf, securityManager, bindAddress, advertiseAddress,
         blockManagerPort, numUsableCores)
-
+    // 在sparkEnv中创建BlockManagerMaster
     val blockManagerMaster = new BlockManagerMaster(registerOrLookupEndpoint(
       BlockManagerMaster.DRIVER_ENDPOINT_NAME,
       new BlockManagerMasterEndpoint(rpcEnv, isLocal, conf, listenerBus)),

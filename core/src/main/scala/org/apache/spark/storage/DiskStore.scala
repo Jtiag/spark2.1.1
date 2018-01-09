@@ -31,6 +31,9 @@ import org.apache.spark.util.io.ChunkedByteBuffer
 /**
  * Stores BlockManager blocks on disk.
  */
+// Disk Store会配置多个文件目录，Spark会在不同的文件目录下创建文件夹，其中文件夹的命名方式是：spark-UUID（随机UUID码）。
+// Disk Store在存储的时候创建文件夹。并且根据“高内聚，低耦合”原则，这种服务型的工具代码就放到了Utils中
+// （调用路径：DiskStore.putBytes—>DiskBlockManager.createLocalDirs—>Utils.createDirectory）
 private[spark] class DiskStore(conf: SparkConf, diskManager: DiskBlockManager) extends Logging {
 
   private val minMemoryMapBytes = conf.getSizeAsBytes("spark.storage.memoryMapThreshold", "2m")
@@ -50,6 +53,7 @@ private[spark] class DiskStore(conf: SparkConf, diskManager: DiskBlockManager) e
     }
     logDebug(s"Attempting to put block $blockId")
     val startTime = System.currentTimeMillis
+    // 文件创建完之后，那么Spark就会在DiskStore中向文件写与之映射的block
     val file = diskManager.getFile(blockId)
     val fileOutputStream = new FileOutputStream(file)
     var threwException: Boolean = true
@@ -71,7 +75,7 @@ private[spark] class DiskStore(conf: SparkConf, diskManager: DiskBlockManager) e
       Utils.bytesToString(file.length()),
       finishTime - startTime))
   }
-
+  // 写block操作
   def putBytes(blockId: BlockId, bytes: ChunkedByteBuffer): Unit = {
     put(blockId) { fileOutputStream =>
       val channel = fileOutputStream.getChannel
@@ -82,7 +86,7 @@ private[spark] class DiskStore(conf: SparkConf, diskManager: DiskBlockManager) e
       }
     }
   }
-
+  // 读取过程就简单了，DiskStore根据blockId读取与之映射的file内容，当然，这中间需要从DiskBlockManager中得到文件信息。
   def getBytes(blockId: BlockId): ChunkedByteBuffer = {
     val file = diskManager.getFile(blockId.name)
     val channel = new RandomAccessFile(file, "r").getChannel

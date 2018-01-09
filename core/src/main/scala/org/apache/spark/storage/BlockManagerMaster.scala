@@ -27,6 +27,7 @@ import org.apache.spark.rpc.RpcEndpointRef
 import org.apache.spark.storage.BlockManagerMessages._
 import org.apache.spark.util.{RpcUtils, ThreadUtils}
 
+// BlockManagerMaster管理block的元数据，通过BlockManagerMaster进行通信
 private[spark]
 class BlockManagerMaster(
     var driverEndpoint: RpcEndpointRef,
@@ -60,6 +61,7 @@ class BlockManagerMaster(
       maxMemSize: Long,
       slaveEndpoint: RpcEndpointRef): BlockManagerId = {
     logInfo(s"Registering BlockManager $blockManagerId")
+    // BlockManagerMaster将注册请求包装成RegisterBlockManager注册到Driver
     val updatedId = driverEndpoint.askWithRetry[BlockManagerId](
       RegisterBlockManager(blockManagerId, maxMemSize, slaveEndpoint))
     logInfo(s"Registered BlockManager $updatedId")
@@ -221,7 +223,7 @@ class BlockManagerMaster(
 
   /**
    * Find out if the executor has cached blocks. This method does not consider broadcast blocks,
-   * since they are not reported the master.
+   * since they are not reported the ma  ster.
    */
   def hasCachedBlocks(executorId: String): Boolean = {
     driverEndpoint.askWithRetry[Boolean](HasCachedBlocks(executorId))

@@ -76,6 +76,8 @@ private[storage] trait BlockEvictionHandler {
  * Stores blocks in memory, either as Arrays of deserialized Java objects or as
  * serialized ByteBuffers.
  */
+// 相对Disk Store，Memory Store就显得容易很多。Memory Store用一个LinkedHashMap来管理，
+// 其中Key是blockId，Value是MemoryEntry特征类(有两个实现类)，MemoryEntry存储着数据信息。
 private[spark] class MemoryStore(
     conf: SparkConf,
     blockInfoManager: BlockInfoManager,

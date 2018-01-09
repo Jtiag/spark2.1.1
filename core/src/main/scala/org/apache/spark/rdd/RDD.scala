@@ -283,6 +283,10 @@ abstract class RDD[T: ClassTag](
   final def iterator(split: Partition, context: TaskContext): Iterator[T] = {
     // 判断此RDD的持久化等级是否为NONE
     if (storageLevel != StorageLevel.NONE) {
+      // 当前RDD的storage level不是NONE的话，表示该RDD在BlockManager中有存储，那么调用getOrCompute函数计算RDD，
+      // 在这个函数中partition和block就对应起来了：
+      // getOrCompute函数会先构造RDDBlockId，其中RDDBlockId就把block和partition联系起来了，
+      // RDDBlockId产生的name就是BlockId的name属性，形式是：rdd_rdd.id_partition.index
       getOrCompute(split, context)
     } else {
       computeOrReadCheckpoint(split, context)

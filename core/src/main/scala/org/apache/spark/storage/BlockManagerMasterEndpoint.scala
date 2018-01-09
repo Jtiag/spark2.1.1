@@ -70,6 +70,7 @@ class BlockManagerMasterEndpoint(
   logInfo("BlockManagerMasterEndpoint up")
 
   override def receiveAndReply(context: RpcCallContext): PartialFunction[Any, Unit] = {
+    // BlockManagerMasterEndpoint接收到从BlockManagerMaster中driver发送来的RegisterBlockManager消息
     case RegisterBlockManager(blockManagerId, maxMemSize, slaveEndpoint) =>
       context.reply(register(blockManagerId, maxMemSize, slaveEndpoint))
 
@@ -314,6 +315,7 @@ class BlockManagerMasterEndpoint(
   /**
    * Returns the BlockManagerId with topology information populated, if available.
    */
+  // 通过对消息BlockManagerInfo检查，向Driver注册
   private def register(
       idWithoutTopologyInfo: BlockManagerId,
       maxMemSize: Long,
@@ -340,7 +342,7 @@ class BlockManagerMasterEndpoint(
         id.hostPort, Utils.bytesToString(maxMemSize), id))
 
       blockManagerIdByExecutor(id.executorId) = id
-
+      // 创建新的BlockManagerInfo添加到blockManagerInfo hashMap中
       blockManagerInfo(id) = new BlockManagerInfo(
         id, System.currentTimeMillis(), maxMemSize, slaveEndpoint)
     }

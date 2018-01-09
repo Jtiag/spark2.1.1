@@ -61,6 +61,7 @@ private[spark] class BlockResult(
  *
  * Note that [[initialize()]] must be called before the BlockManager is usable.
  */
+// BlockManager包装了BlockManagerMaster,BlockManager对Storage模块进行操作（对block进行增删改查）
 private[spark] class BlockManager(
     executorId: String,
     rpcEnv: RpcEnv,
@@ -77,7 +78,7 @@ private[spark] class BlockManager(
 
   private[spark] val externalShuffleServiceEnabled =
     conf.getBoolean("spark.shuffle.service.enabled", false)
-
+  // 处理文件操作
   val diskBlockManager = {
     // Only perform cleanup if an external service is not serving our shuffle files.
     val deleteFilesOnStop =
@@ -94,6 +95,8 @@ private[spark] class BlockManager(
   // Actual storage of where blocks are kept
   private[spark] val memoryStore =
     new MemoryStore(conf, blockInfoManager, serializerManager, memoryManager, this)
+  // 当前的Spark版本对Disk Store进行了更细粒度的分工，把对文件的操作提取出来放到了DiskBlockManager中，
+  // DiskStore仅仅负责数据的存储和读取。
   private[spark] val diskStore = new DiskStore(conf, diskBlockManager)
   memoryManager.setMemoryStore(memoryStore)
 
@@ -137,7 +140,7 @@ private[spark] class BlockManager(
   // Max number of failures before this block manager refreshes the block locations from the driver
   private val maxFailuresBeforeLocationRefresh =
     conf.getInt("spark.block.failures.beforeLocationRefresh", 5)
-
+  // BlockManagerSlaveEndpoint的ref
   private val slaveEndpoint = rpcEnv.setupEndpoint(
     "BlockManagerEndpoint" + BlockManager.ID_GENERATOR.next,
     new BlockManagerSlaveEndpoint(rpcEnv, this, mapOutputTracker))
@@ -163,6 +166,8 @@ private[spark] class BlockManager(
    * BlockManagerMaster, starts the BlockManagerWorker endpoint, and registers with a local shuffle
    * service if configured.
    */
+  // 在BlockManager调用initialize初始化自己时BlockManagerMaster向Driver注册自己，同时，在注册时也启动了Slave Endpoint。
+  // 另外，向本地shuffle服务器注册Executor配置，如果存在的话。
   def initialize(appId: String): Unit = {
     blockTransferService.init(this)
     shuffleClient.init(appId)
@@ -178,7 +183,7 @@ private[spark] class BlockManager(
 
     val id =
       BlockManagerId(executorId, blockTransferService.hostName, blockTransferService.port, None)
-
+    // BlockManagerMaster向Driver注册自己，同时，在注册时也启动了Slave Endpoint
     val idFromMaster = master.registerBlockManager(
       id,
       maxMemory,
@@ -195,6 +200,7 @@ private[spark] class BlockManager(
 
     // Register Executors' configuration with the local shuffle service, if one should exist.
     if (externalShuffleServiceEnabled && !blockManagerId.isDriver) {
+      // 向本地shuffle服务器注册Executor配置，如果存在的话。
       registerWithExternalShuffleServer()
     }
 
@@ -586,6 +592,7 @@ private[spark] class BlockManager(
     require(blockId != null, "BlockId is null")
     var runningFailureCount = 0
     var totalFailureCount = 0
+    // 首先获取该block的locations
     val locations = getLocations(blockId)
     val maxFetchFailures = locations.size
     var locationIterator = locations.iterator
@@ -593,6 +600,7 @@ private[spark] class BlockManager(
       val loc = locationIterator.next()
       logDebug(s"Getting remote block $blockId from $loc")
       val data = try {
+        // 根据 locations信息向远端发送请求，通过BlockTransferService获取block，只要有一个远端返回block该函数就返回而不继续发送请求
         blockTransferService.fetchBlockSync(
           loc.host, loc.port, loc.executorId, blockId.toString).nioByteBuffer()
       } catch {
@@ -643,6 +651,10 @@ private[spark] class BlockManager(
    * any locks if the block was fetched from a remote block manager. The read lock will
    * automatically be freed once the result's `data` iterator is fully consumed.
    */
+  // get函数会先从本地get，如果从本地找到，就返回相应的block；如果没有就请求从远程get。
+  // 在通常情况下Spark任务的分配是根据block的分布决定的，任务往往会被分配到拥有block的节点上，
+  // 因此getLocal就能找到所需的block；但是在资源有限的情况下，Spark会将任务调度到与block不同的节点上，
+  // 这样就必须通过getRemote来获得block。
   def get[T: ClassTag](blockId: BlockId): Option[BlockResult] = {
     val local = getLocalValues(blockId)
     if (local.isDefined) {
@@ -782,6 +794,7 @@ private[spark] class BlockManager(
    *                automatically do decryption.
    * @return true if the block was stored or false if an error occurred.
    */
+  // 向block manager写入一个新的已序列化的block
   def putBytes[T: ClassTag](
       blockId: BlockId,
       bytes: ChunkedByteBuffer,
@@ -829,6 +842,8 @@ private[spark] class BlockManager(
    *                     returns.
    * @return true if the block was already present or if the put succeeded, false otherwise.
    */
+  // 将给定的字节按照给定的级别放在一个block stores中，在必要时replicating这些值。如果块已经存在，则此方法不会覆盖它。
+  // 重要!调用者不能改变或释放数据缓冲区的基础字节。这样做可能会损坏或更改阻塞管理器存储的数据。
   private def doPutBytes[T](
       blockId: BlockId,
       bytes: ChunkedByteBuffer,
@@ -931,6 +946,10 @@ private[spark] class BlockManager(
     require(level != null && level.isValid, "StorageLevel is null or invalid")
 
     val putBlockInfo = {
+      // doPut方法主要做了一下三件事
+      // 1.创建BlockInfo对象存储block信息
+      // 2.将BlockInfo加锁，然后根据Storage Level判断存储到Memory还是Disk。同时，对于已经准备好读的BlockInfo要进行解锁。
+      // 根据block的副本数量决定是否向远程发送副本。
       val newInfo = new BlockInfo(level, classTag, tellMaster)
       if (blockInfoManager.lockNewBlockForWriting(blockId, newInfo)) {
         newInfo

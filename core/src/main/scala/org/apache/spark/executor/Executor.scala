@@ -99,6 +99,7 @@ private[spark] class Executor(
 
   if (!isLocal) {
     env.metricsSystem.registerSource(executorSource)
+    // 在使用BlockManager前必须先调用initialize
     env.blockManager.initialize(conf.getAppId)
   }
 
