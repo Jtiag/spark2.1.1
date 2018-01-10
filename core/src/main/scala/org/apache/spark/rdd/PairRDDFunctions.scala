@@ -73,6 +73,7 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
    * (Int, Int) into an RDD of type (Int, Seq[Int]).
    */
   @Experimental
+  // 第三个参数mergeCombiners 需要在多个分区中才会触发其作用
   def combineByKeyWithClassTag[C](
       createCombiner: V => C,
       mergeValue: (C, V) => C,
@@ -81,10 +82,12 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
       mapSideCombine: Boolean = true,
       serializer: Serializer = null)(implicit ct: ClassTag[C]): RDD[(K, C)] = self.withScope {
     require(mergeCombiners != null, "mergeCombiners must be defined") // required as of Spark 0.9.0
+    // keyClass不能为数组
     if (keyClass.isArray) {
       if (mapSideCombine) {
         throw new SparkException("Cannot use map-side combining with array keys.")
       }
+      // 默认的HashPartitioner不能使用 数组key来分区
       if (partitioner.isInstanceOf[HashPartitioner]) {
         throw new SparkException("HashPartitioner cannot partition array keys.")
       }
